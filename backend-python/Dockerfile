@@ -1,6 +1,8 @@
 FROM python:3.12-slim
 
 WORKDIR /app
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
 
 # System deps:
 #   gcc + libpq-dev  → psycopg2 compilation

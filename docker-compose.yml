@@ -205,7 +205,8 @@ services:
       dockerfile: Dockerfile
     container_name: school_ai_celery
     restart: unless-stopped
-    command: celery -A celery_app worker --loglevel=info --concurrency=2 -Q default
+    entrypoint: []
+    command: ["celery", "-A", "celery_app", "worker", "--loglevel=info", "--concurrency=2"]
     depends_on:
       postgres:
         condition: service_healthy
