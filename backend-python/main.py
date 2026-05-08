@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware

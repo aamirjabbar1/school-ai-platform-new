@@ -4,7 +4,7 @@ services:
 
   # ─── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: school_ai_db
     restart: unless-stopped
     environment:
@@ -24,7 +24,7 @@ services:
 
   # ─── Redis ──────────────────────────────────────────────────────────────────
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: school_ai_redis
     restart: unless-stopped
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1
@@ -39,8 +39,10 @@ services:
       - school_network
 
   # ─── MinIO Object Storage ────────────────────────────────────────────────────
+  # Pinned to the same release the official Milvus standalone compose tests
+  # against. This release ships curl, which the official healthcheck uses.
   minio:
-    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
     container_name: school_ai_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -57,7 +59,7 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     networks:
       - school_network
 
@@ -82,8 +84,9 @@ services:
       - school_network
 
   # ─── etcd (Milvus metadata store) ────────────────────────────────────────────
+  # Pinned to the same etcd release as the official Milvus standalone compose.
   etcd:
-    image: quay.io/coreos/etcd:v3.5.5
+    image: quay.io/coreos/etcd:v3.5.25
     container_name: school_ai_etcd
     restart: unless-stopped
     environment:
@@ -108,8 +111,10 @@ services:
       - school_network
 
   # ─── Milvus Vector Database ───────────────────────────────────────────────────
+  # Latest stable Milvus (released Apr 2026). The image ships curl, used by the
+  # official healthcheck against the metrics/health port.
   milvus:
-    image: milvusdb/milvus:v2.4.6
+    image: milvusdb/milvus:v2.6.15
     container_name: school_ai_milvus
     restart: unless-stopped
     command: ["milvus", "run", "standalone"]
@@ -153,8 +158,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio_init:
+        condition: service_completed_successfully
       milvus:
         condition: service_healthy
     environment:
@@ -204,8 +209,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio:
-        condition: service_healthy
+      minio_init:
+        condition: service_completed_successfully
       milvus:
         condition: service_healthy
     environment:
@@ -245,7 +250,7 @@ services:
 
   # ─── Nginx Reverse Proxy ──────────────────────────────────────────────────────
   nginx:
-    image: nginx:alpine
+    image: nginx:stable-alpine
     container_name: school_ai_nginx
     restart: unless-stopped
     depends_on:

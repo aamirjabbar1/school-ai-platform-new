@@ -19,7 +19,7 @@ redis==5.2.1
 minio==7.2.12
 
 # ─── Vector database (Milvus) ─────────────────────────────────────────────────
-pymilvus==2.4.6
+pymilvus==2.6.12
 
 # ─── Embeddings (local, no API key required) ──────────────────────────────────
 fastembed==0.3.6
@@ -40,6 +40,9 @@ anthropic>=0.86.0
 # ─── Document parsing ─────────────────────────────────────────────────────────
 pypdf==5.1.0
 python-docx==1.1.2
+openpyxl==3.1.5
+pdfplumber==0.11.4
+olefile==0.47
 
 # ─── API extras ───────────────────────────────────────────────────────────────
 slowapi==0.1.9

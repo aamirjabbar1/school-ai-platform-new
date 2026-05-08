@@ -1,0 +1,10 @@
+# Never bake local dev secrets into the image.
+# Docker Compose injects all env vars at runtime via the environment: block.
+.env
+.env.*
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite3
+uploads/documents/*
+uploads/submissions/*

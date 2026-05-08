@@ -3,7 +3,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 _env_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(_env_path, override=True)
+load_dotenv(_env_path, override=False)
 
 ENV = os.getenv("ENV", "development")
 PORT = int(os.getenv("PORT", 8000))
