@@ -1,0 +1,394 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML+RDFa 1.0//EN"
+  "http://www.w3.org/MarkUp/DTD/xhtml-rdfa-1.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" version="XHTML+RDFa 1.0" dir="ltr">
+
+<head profile="http://www.w3.org/1999/xhtml/vocab">
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="Generator" content="Drupal 7 (http://drupal.org)" />
+<link rel="shortcut icon" href="https://www.nbf.org.pk/sites/default/files/logo_0.png" type="image/png" />
+  <meta name=viewport content="width=device-width, initial-scale=1">
+  <title>Page not found | National Book Foundation</title>
+  <style type="text/css" media="all">
+@import url("https://www.nbf.org.pk/modules/system/system.base.css?sz0u5t");
+@import url("https://www.nbf.org.pk/modules/system/system.menus.css?sz0u5t");
+@import url("https://www.nbf.org.pk/modules/system/system.messages.css?sz0u5t");
+@import url("https://www.nbf.org.pk/modules/system/system.theme.css?sz0u5t");
+</style>
+<style type="text/css" media="all">
+@import url("https://www.nbf.org.pk/modules/field/theme/field.css?sz0u5t");
+@import url("https://www.nbf.org.pk/modules/node/node.css?sz0u5t");
+@import url("https://www.nbf.org.pk/modules/search/search.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/modules/ubercart/uc_order/uc_order.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/modules/ubercart/uc_product/uc_product.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/modules/ubercart/uc_store/uc_store.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/modules/uc_tinycart/uc_tinycart.css?sz0u5t");
+@import url("https://www.nbf.org.pk/modules/user/user.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/modules/views/css/views.css?sz0u5t");
+</style>
+<style type="text/css" media="all">
+@import url("https://www.nbf.org.pk/sites/all/modules/ctools/css/ctools.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/modules/panels/css/panels.css?sz0u5t");
+</style>
+<style type="text/css" media="all">
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/css/layout.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/css/style.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/css/colors.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/dist/main.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/css/all.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/css/custom.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/css/responsive.css?sz0u5t");
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/css/responsive2.css?sz0u5t");
+</style>
+<style type="text/css" media="print">
+@import url("https://www.nbf.org.pk/sites/all/themes/sami/css/print.css?sz0u5t");
+</style>
+
+<!--[if lte IE 7]>
+<link type="text/css" rel="stylesheet" href="https://www.nbf.org.pk/sites/all/themes/sami/css/ie.css?sz0u5t" media="all" />
+<![endif]-->
+
+<!--[if IE 6]>
+<link type="text/css" rel="stylesheet" href="https://www.nbf.org.pk/sites/all/themes/sami/css/ie6.css?sz0u5t" media="all" />
+<![endif]-->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script type="text/javascript" src="https://www.nbf.org.pk/misc/jquery.js?v=1.4.4"></script>
+<script type="text/javascript" src="https://www.nbf.org.pk/misc/jquery-extend-3.4.0.js?v=1.4.4"></script>
+<script type="text/javascript" src="https://www.nbf.org.pk/misc/jquery-html-prefilter-3.5.0-backport.js?v=1.4.4"></script>
+<script type="text/javascript" src="https://www.nbf.org.pk/misc/jquery.once.js?v=1.2"></script>
+<script type="text/javascript" src="https://www.nbf.org.pk/misc/drupal.js?sz0u5t"></script>
+<script type="text/javascript" src="https://www.nbf.org.pk/misc/form-single-submit.js?v=7.98"></script>
+<script type="text/javascript" src="https://www.nbf.org.pk/sites/all/modules/uc_tinycart/uc_tinycart.js?sz0u5t"></script>
+<script type="text/javascript" src="https://www.nbf.org.pk/sites/all/themes/sami/dist/main.js?sz0u5t"></script>
+<script type="text/javascript">
+<!--//--><![CDATA[//><!--
+jQuery.extend(Drupal.settings, {"basePath":"\/","pathPrefix":"","setHasJsCookie":0,"ajaxPageState":{"theme":"sami","theme_token":"OwgPxws98Zp5JdLQ2BzjgRX99KU93zX982LDgDcPrfI","js":{"misc\/jquery.js":1,"misc\/jquery-extend-3.4.0.js":1,"misc\/jquery-html-prefilter-3.5.0-backport.js":1,"misc\/jquery.once.js":1,"misc\/drupal.js":1,"misc\/form-single-submit.js":1,"sites\/all\/modules\/uc_tinycart\/uc_tinycart.js":1,"sites\/all\/themes\/sami\/dist\/main.js":1},"css":{"modules\/system\/system.base.css":1,"modules\/system\/system.menus.css":1,"modules\/system\/system.messages.css":1,"modules\/system\/system.theme.css":1,"modules\/field\/theme\/field.css":1,"modules\/node\/node.css":1,"modules\/search\/search.css":1,"sites\/all\/modules\/ubercart\/uc_order\/uc_order.css":1,"sites\/all\/modules\/ubercart\/uc_product\/uc_product.css":1,"sites\/all\/modules\/ubercart\/uc_store\/uc_store.css":1,"sites\/all\/modules\/uc_tinycart\/uc_tinycart.css":1,"modules\/user\/user.css":1,"sites\/all\/modules\/views\/css\/views.css":1,"sites\/all\/modules\/ctools\/css\/ctools.css":1,"sites\/all\/modules\/panels\/css\/panels.css":1,"sites\/all\/themes\/sami\/css\/layout.css":1,"sites\/all\/themes\/sami\/css\/style.css":1,"sites\/all\/themes\/sami\/css\/colors.css":1,"sites\/all\/themes\/sami\/dist\/main.css":1,"sites\/all\/themes\/sami\/css\/all.css":1,"sites\/all\/themes\/sami\/css\/custom.css":1,"sites\/all\/themes\/sami\/css\/responsive.css":1,"sites\/all\/themes\/sami\/css\/responsive2.css":1,"sites\/all\/themes\/sami\/css\/print.css":1,"sites\/all\/themes\/sami\/css\/ie.css":1,"sites\/all\/themes\/sami\/css\/ie6.css":1}},"urlIsAjaxTrusted":{"\/sites\/default\/files\/Mathematics%2010.pdf":true}});
+//--><!]]>
+</script>
+</head>
+<body class="html not-front not-logged-in no-sidebars page-sites page-sites-default page-sites-default-files page-sites-default-files-mathematics-10pdf footer-columns" >
+  <div id="skip-link">
+    <a href="#main-content" class="element-invisible element-focusable">Skip to main content</a>
+  </div>
+    <div id="page-wrapper"><div id="page">
+        <div id="translate"><div class="section clearfix">
+        <div class="region region-translate">
+    <div id="block-gtranslate-gtranslate" class="block block-gtranslate">
+
+    <h2>Translate Into</h2>
+  
+  <div class="content">
+    <script type="text/javascript">
+/* <![CDATA[ */
+eval(unescape("eval%28function%28p%2Ca%2Cc%2Ck%2Ce%2Cr%29%7Be%3Dfunction%28c%29%7Breturn%28c%3Ca%3F%27%27%3Ae%28parseInt%28c/a%29%29%29+%28%28c%3Dc%25a%29%3E35%3FString.fromCharCode%28c+29%29%3Ac.toString%2836%29%29%7D%3Bif%28%21%27%27.replace%28/%5E/%2CString%29%29%7Bwhile%28c--%29r%5Be%28c%29%5D%3Dk%5Bc%5D%7C%7Ce%28c%29%3Bk%3D%5Bfunction%28e%29%7Breturn%20r%5Be%5D%7D%5D%3Be%3Dfunction%28%29%7Breturn%27%5C%5Cw+%27%7D%3Bc%3D1%7D%3Bwhile%28c--%29if%28k%5Bc%5D%29p%3Dp.replace%28new%20RegExp%28%27%5C%5Cb%27+e%28c%29+%27%5C%5Cb%27%2C%27g%27%29%2Ck%5Bc%5D%29%3Breturn%20p%7D%28%276%207%28a%2Cb%29%7Bn%7B4%282.9%29%7B3%20c%3D2.9%28%22o%22%29%3Bc.p%28b%2Cf%2Cf%29%3Ba.q%28c%29%7Dg%7B3%20c%3D2.r%28%29%3Ba.s%28%5C%27t%5C%27+b%2Cc%29%7D%7Du%28e%29%7B%7D%7D6%20h%28a%29%7B4%28a.8%29a%3Da.8%3B4%28a%3D%3D%5C%27%5C%27%29v%3B3%20b%3Da.w%28%5C%27%7C%5C%27%29%5B1%5D%3B3%20c%3B3%20d%3D2.x%28%5C%27y%5C%27%29%3Bz%283%20i%3D0%3Bi%3Cd.5%3Bi++%294%28d%5Bi%5D.A%3D%3D%5C%27B-C-D%5C%27%29c%3Dd%5Bi%5D%3B4%282.j%28%5C%27k%5C%27%29%3D%3DE%7C%7C2.j%28%5C%27k%5C%27%29.l.5%3D%3D0%7C%7Cc.5%3D%3D0%7C%7Cc.l.5%3D%3D0%29%7BF%286%28%29%7Bh%28a%29%7D%2CG%29%7Dg%7Bc.8%3Db%3B7%28c%2C%5C%27m%5C%27%29%3B7%28c%2C%5C%27m%5C%27%29%7D%7D%27%2C43%2C43%2C%27%7C%7Cdocument%7Cvar%7Cif%7Clength%7Cfunction%7CGTranslateFireEvent%7Cvalue%7CcreateEvent%7C%7C%7C%7C%7C%7Ctrue%7Celse%7CdoGTranslate%7C%7CgetElementById%7Cgoogle_translate_element2%7CinnerHTML%7Cchange%7Ctry%7CHTMLEvents%7CinitEvent%7CdispatchEvent%7CcreateEventObject%7CfireEvent%7Con%7Ccatch%7Creturn%7Csplit%7CgetElementsByTagName%7Cselect%7Cfor%7CclassName%7Cgoog%7Cte%7Ccombo%7Cnull%7CsetTimeout%7C500%27.split%28%27%7C%27%29%2C0%2C%7B%7D%29%29"))
+/* ]]> */
+</script><style>div.skiptranslate,#google_translate_element2,#goog-gt-{display:none!important}body{top:0!important}</style><div id="google_translate_element2"></div>
+<script type="text/javascript">function googleTranslateElementInit2() {new google.translate.TranslateElement({pageLanguage: 'en', autoDisplay: false}, 'google_translate_element2');}</script>
+<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit2"></script><select onchange="doGTranslate(this);"><option value="">Select Language</option><option value="en|en" style="font-weight:bold;background:url('/sites/all/modules/gtranslate/gtranslate-files/16l.png') no-repeat scroll 0 -0px;padding-left:18px;">English</option><option value="en|ur" style="background:url('/sites/all/modules/gtranslate/gtranslate-files/16l.png') no-repeat scroll 0 -912px;padding-left:18px;">Urdu</option></select>  </div>
+</div>
+  </div>
+    </div></div> <!-- /.section, /#translate -->
+  
+  <div id="header" class="without-secondary-menu"><div class="section clearfix">
+
+    <div class="logo-container">
+          <a href="/" title="Home" rel="home" id="logo">
+        <img src="https://www.nbf.org.pk/sites/default/files/nbf%20logo.png" alt="Home" />
+      </a>
+    
+          <div id="name-and-slogan">
+
+                              <div id="site-name">
+              <strong>
+                <a href="/" title="Home" rel="home"><span>National Book Foundation</span></a>
+              </strong>
+            </div>
+                  
+                  <div id="site-slogan">
+            Ministry of Federal Education &amp; Professional Training Government Of Pakistan          </div>
+              </div>
+      </div> <!-- /#name-and-slogan -->
+    
+      <div class="region region-header">
+    <div id="block-search-form" class="block block-search">
+
+    
+  <div class="content">
+    <form action="/sites/default/files/Mathematics%2010.pdf" method="post" id="search-block-form" accept-charset="UTF-8"><div><div class="container-inline">
+      <h2 class="element-invisible">Search form</h2>
+    <div class="form-item form-type-textfield form-item-search-block-form">
+  <label class="element-invisible" for="edit-search-block-form--2">Search </label>
+ <input title="Enter the terms you wish to search for." placeholder="Find books here..." type="text" id="edit-search-block-form--2" name="search_block_form" value="" size="15" maxlength="128" class="form-text" />
+</div>
+<div class="form-actions form-wrapper" id="edit-actions"><input type="submit" id="edit-submit" name="op" value="Search" class="form-submit" /></div><input type="hidden" name="form_build_id" value="form-VWYq8xROXDUWEDVUvpzLYzSYoBMCJ1Fdan_9GVSY6f4" />
+<input type="hidden" name="form_id" value="search_block_form" />
+</div>
+</div></form>  </div>
+</div>
+<div id="block-block-2" class="block block-block">
+
+    
+  <div class="content">
+    <p><a href="/user/register">Register</a> | <a href="/user/login">Log In</a></p>
+  </div>
+</div>
+  </div>
+
+    
+  </div></div> <!-- /.section, /#header -->
+  
+   <div id="menu-region" class="main-region">
+  <div class="section">
+    
+    </div>
+    </div>
+
+  
+
+      <div id="menuregion"><div class="section clearfix">
+        <div class="region region-menuregion">
+    <div id="block-block-13" class="block block-block">
+
+    
+  <div class="content">
+    <div class="nav__container">
+<div class="nav__mobile">
+<div class="nav__btn">
+        <a aria-label="Mobile menu" class="nav-toggle fade"><span></span><span class="mrg"></span><span class="mrg"></span></a>
+      </div>
+</div>
+<p><nav class="menu-toggle"><br />
+<ul class="nav__menu">
+<li><a href="/">Home</a></li>
+<li class="dropdown"><span>About Us</span>
+<ul>
+<li><a href="/about">About NBF</a></li>
+<li><a href="/act">NBF Act</a></li>
+<li><a href="/minister-of-education">Minister of Education</a></li>
+<li><a href="/secretary-MOFEPT">Secretary MOFEPT</a></li>
+<li><a href="/present-md">Present MD</a></li>
+<li><a href="/secretary-nbf">Present Secretary</a></li>
+<li><a href="/aims-and-objectives">Aims &amp; Objectives</a></li>
+<li><a href="/vision-and-mission">NBF Vision &amp; Mission</a></li>
+<li><a href="/museum">NBF Museum</a></li>
+<li class="no-display" style="display: none;"><a href="/right-to-access-information">Right to Access Information Act</a></li>
+</ul>
+</li>
+<li class="dropdown"><span>Publications</span>
+<ul>
+<li><a href="/catalog">NBF Catalog</a></li>
+<li class="dropdown second-level"><span>Books</span>
+<ul>
+<li class="dropdown second-level"><a href="/books/category/text-books">Text Books</a>
+<ul>
+<li><a href="/chapters-of-text-books">Chapters of Text Books</a></li>
+</ul>
+</li>
+<li><a href="/books/category/braille-books">Braille Books</a></li>
+<li class="dropdown second-level"><a href="/books/category/general-interest">General Books</a>
+<ul>
+<li><a href="/books/category/biographies-autobiographies">Biographies-autobiographies</a></li>
+<li><a href="/books/category/children-books">Children Books</a></li>
+<li><a href="/books/category/health">Health</a></li>
+<li><a href="/books/category/history">History</a></li>
+<li><a href="/books/category/humor">Humor</a></li>
+<li><a href="/books/category/novels">Novels</a></li>
+<li><a href="/books/category/pakistan">Pakistan</a></li>
+<li><a href="/books/category/poetry">Poetry</a></li>
+<li><a href="/books/category/religions-spirituality">Religions and Spirituality</a></li>
+<li><a href="/books/category/self-help">Self Help</a></li>
+<li><a href="/books/category/travelogues">Travelogues</a></li>
+</ul>
+</li>
+<li class="mobile-only"><a href="/chapters-of-text-books">Chapters of Text Books</a></li>
+</ul>
+</li>
+<li><a href="/mahnama">NBF Magazine (KITAB)</a></li>
+</ul>
+<li class="dropdown"><span>NBF Network</span>
+<ul>
+<li><a href="/head-office">Head Office Islamabad </a></li>
+<li><a href="/regional-offices">Regional Offices</a></li>
+<li><a href="/outlets">Outlets</a></li>
+<li><a href="/airport-book-shops">Airport Book Shops</a></li>
+<li><a href="/franchise">Franchise</a></li>
+</ul>
+</li>
+<li class="dropdown" style="display: none !important;"><span>Books</span>
+<ul>
+<li><a href="/books/category/text-books">Text Books</a></li>
+<li><a href="/books/category/braille-books">Braille Books</a></li>
+<li class="dropdown second-level"><a href="/books/category/general-interest">General Books</a>
+<ul>
+<li><a href="/books/category/biographies-autobiographies">Biographies-autobiographies</a></li>
+<li><a href="/books/category/children-books">Children Books</a></li>
+<li><a href="/books/category/health">Health</a></li>
+<li><a href="/books/category/history">History</a></li>
+<li><a href="/books/category/humor">Humor</a></li>
+<li><a href="/books/category/novels">Novels</a></li>
+<li><a href="/books/category/pakistan">Pakistan</a></li>
+<li><a href="/books/category/poetry">Poetry</a></li>
+<li><a href="/books/category/religions-spirituality">Religions and Spirituality</a></li>
+<li><a href="/books/category/self-help">Self Help</a></li>
+<li><a href="/books/category/travelogues">Travelogues</a></li>
+</ul>
+</li>
+<li><a href="/chapters-of-text-books">Chapters of Text Books</a></li>
+</ul>
+</li>
+<li class="dropdown second-level"><a href="/publish-with-us">Publish with Us</a>
+<ul>
+<li><a href="/contact">Contact Us</a></li>
+</ul>
+</li>
+<li><a href="/">Authors Hub</a></li>
+<li><a href="/braille-publication">Braille Pub</a></li>
+</ul>
+<p>      </nav>
+  </div>
+  </div>
+</div>
+  </div>
+    </div></div> <!-- /.section, /#featured -->
+  
+  
+  
+  <div id="main-wrapper" class="clearfix"><div id="main" class="clearfix">
+
+    
+    
+    <div id="content" class="column"><div class="section">
+	            <a id="main-content"></a>
+                    <h1 class="title" id="page-title">
+          Page not found        </h1>
+                          <div class="tabs">
+                  </div>
+                          <div class="region region-content">
+    <div id="block-system-main" class="block block-system">
+
+    
+  <div class="content">
+    The requested page "/sites/default/files/Mathematics%2010.pdf" could not be found.  </div>
+</div>
+  </div>
+      
+    </div></div> <!-- /.section, /#content -->
+
+    
+  </div></div> <!-- /#main, /#main-wrapper -->
+
+  
+  <div id="footer-wrapper"><div class="section">
+
+          <div id="footer-columns" class="clearfix">
+          <div class="region region-footer-firstcolumn">
+    <div id="block-views-footer-categories-block-1" class="block block-views">
+
+    <h2>Popular Categories</h2>
+  
+  <div class="content">
+    <div class="view view-footer-categories view-id-footer_categories view-display-id-block_1 view-dom-id-6f12c5939b8985dc7084e1da2e070480">
+        
+  
+  
+      <div class="view-content">
+        <div class="views-row views-row-1 views-row-odd views-row-first">
+      
+  <div class="views-field views-field-name">        <span class="field-content"><a href="/books/category/history">History</a></span>  </div>  </div>
+  <div class="views-row views-row-2 views-row-even">
+      
+  <div class="views-field views-field-name">        <span class="field-content"><a href="/books/category/poetry">Poetry</a></span>  </div>  </div>
+  <div class="views-row views-row-3 views-row-odd">
+      
+  <div class="views-field views-field-name">        <span class="field-content"><a href="/books/category/self-help">Self-Help</a></span>  </div>  </div>
+  <div class="views-row views-row-4 views-row-even">
+      
+  <div class="views-field views-field-name">        <span class="field-content"><a href="/books/category/health">Health</a></span>  </div>  </div>
+  <div class="views-row views-row-5 views-row-odd views-row-last">
+      
+  <div class="views-field views-field-name">        <span class="field-content"><a href="/books/category/biographies-autobiographies">Biographies / Autobiographies</a></span>  </div>  </div>
+    </div>
+  
+  
+  
+  
+  
+  
+</div>  </div>
+</div>
+  </div>
+          <div class="region region-footer-secondcolumn">
+    <div id="block-block-8" class="block block-block">
+
+    <h2>Useful Links</h2>
+  
+  <div class="content">
+    <p><a href="/publish-with-us">Publish With Us</a><br />
+<a href="/tenders">Tenders</a><br />
+<a href="/news-and-press">News &amp; Press</a><br />
+<a href="/events">Events</a><br />
+<a href="/jobs">Jobs</a></p>
+  </div>
+</div>
+  </div>
+          <div class="region region-footer-thirdcolumn">
+    <div id="block-block-9" class="block block-block">
+
+    <h2>Contact Us</h2>
+  
+  <div class="content">
+    <p><b>Call:</b> 051-9261533<br />
+<b>Books:</b> <a href="mailto:books@nbf.org.pk">books@nbf.org.pk</a><br />
+<b>Online:</b> <a href="/contact">Contact Form</a></p>
+<div class="social-img"><a href="https://www.facebook.com/nbfisb"><img src="/custom/facebook.png" /></a> <a href="/"><img src="/custom/twitter.png" /></a></div>
+  </div>
+</div>
+  </div>
+          <div class="region region-footer-fourthcolumn">
+    <div id="block-block-10" class="block block-block">
+
+    <h2>Ordering &amp; Payments</h2>
+  
+  <div class="content">
+    <p><a href="/how-to-order">How to Order</a><br />
+<a href="/payment-methods">Payment Methods</a><br />
+<a href="/privacy-policy">Privacy Policy</a><br />
+<a href="/terms-of-service">Terms of Service</a></p>
+  </div>
+</div>
+  </div>
+      </div> <!-- /#footer-columns -->
+    
+          <div id="footer" class="clearfix">
+          <div class="region region-footer">
+    <div id="block-block-20" class="block block-block">
+
+    
+  <div class="content">
+    <div style="text-align:center;">
+<div class="plogo-title">We Accept</div>
+<div class="brand-logos"><img src="/custom/cod.png"/> <img src="/custom/easypaisa.png"/> <img src="/custom/jazzcash.png"/> <img src="/custom/visa.png"/> <img src="/custom/mastercard.png"/></div>
+<div style="text-align:center;" class="developed-by">Design &amp; Developed by <a ref="nofollow" href="https://webmastershark.com">WebmasterShark</a></div>
+<p>Copyright © 2021 National Book Foundation. All rights reserved.</p>
+<div class="counter"><img src="https://counter10.stat.ovh/private/freecounterstat.php?c=mkgrsmlp4z1f4y8dx12s6l5jtqhur51s" border="0" title="free web counters" alt="free web counters" /></div>
+<div class="web-link"><a href="http://nbf.org.pk/webmail">Web Mail</a></div>
+</div>
+  </div>
+</div>
+  </div>
+      </div> <!-- /#footer -->
+    
+  </div></div> <!-- /.section, /#footer-wrapper -->
+
+</div></div> <!-- /#page, /#page-wrapper -->
+    <script type="text/javascript">
+  !function(e){var t={};function n(o){if(t[o])return t[o].exports;var r=t[o]={i:o,l:!1,exports:{}};return e[o].call(r.exports,r,r.exports,n),r.l=!0,r.exports}n.m=e,n.c=t,n.d=function(e,t,o){n.o(e,t)||Object.defineProperty(e,t,{enumerable:!0,get:o})},n.r=function(e){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})},n.t=function(e,t){if(1&t&&(e=n(e)),8&t)return e;if(4&t&&"object"==typeof e&&e&&e.__esModule)return e;var o=Object.create(null);if(n.r(o),Object.defineProperty(o,"default",{enumerable:!0,value:e}),2&t&&"string"!=typeof e)for(var r in e)n.d(o,r,function(t){return e[t]}.bind(null,r));return o},n.n=function(e){var t=e&&e.__esModule?function(){return e.default}:function(){return e};return n.d(t,"a",t),t},n.o=function(e,t){return Object.prototype.hasOwnProperty.call(e,t)},n.p="",n(n.s=0)}([function(e,t,n){"use strict";n.r(t);var o;n(1);window.addEventListener("resize",(function(){document.body.classList.add("resize-animation-stopper"),clearTimeout(o),o=setTimeout((function(){document.body.classList.remove("resize-animation-stopper")}),400)}));var r=document.querySelector(".nav-toggle"),i=document.querySelector(".menu-toggle");r.addEventListener("click",(function(e){this.classList.toggle("open"),i.classList.toggle("active"),e.stopPropagation()})),document.querySelector(".dropdown a").addEventListener("click",(function(e){this.nextElementSibling.classList.toggle(""),this.parentNode.classList.toggle(""),e.stopPropagation()})),document.querySelector(".second-level a").addEventListener("click",(function(e){this.nextElementSibling.classList.toggle(""),this.parentNode.classList.toggle(""),e.stopPropagation()}))},function(e,t,n){}]);
+  </script>
+<script>
+$(document).ready(function () {
+    $('.dropdown').click(function (e) {
+        $(this).find('ul:first').addClass('show');
+      });
+});
+  </script>
+</body>
+</html>

@@ -1,0 +1,268 @@
+import { useState, useEffect } from 'react';
+import Layout from '../../components/Layout';
+import { questionPaperAPI } from '../../services/api';
+import { FileText, Wand2, Loader2, Eye, Trash2, Globe, EyeOff, Plus, X, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
+
+const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Computer Science', 'Physics', 'Chemistry', 'Biology'];
+const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
+const PAPER_TYPES = ['monthly_test', 'mid_term', 'final_exam', 'quiz', 'class_test'];
+
+export default function QuestionPapers() {
+  const [papers, setPapers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showGenerator, setShowGenerator] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const [viewPaper, setViewPaper] = useState(null);
+  const [expandedAnswers, setExpandedAnswers] = useState({});
+
+  const [genForm, setGenForm] = useState({
+    subject: '', class_name: '', paper_type: 'class_test',
+    total_marks: 100, duration_minutes: 60, topics: '',
+    difficulty_distribution: { easy: 30, medium: 50, hard: 20 },
+  });
+
+  useEffect(() => {
+    questionPaperAPI.getAll().then(({ data }) => setPapers(data)).finally(() => setLoading(false));
+  }, []);
+
+  const setGen = (k, v) => setGenForm((f) => ({ ...f, [k]: v }));
+
+  const generate = async () => {
+    if (!genForm.subject || !genForm.class_name) {
+      setError('Subject and class are required');
+      return;
+    }
+    setGenerating(true);
+    setError('');
+    try {
+      const { data } = await questionPaperAPI.generate({
+        ...genForm,
+        topics: genForm.topics ? genForm.topics.split(',').map((t) => t.trim()) : [],
+      });
+      setPapers((prev) => [data.paper, ...prev]);
+      setShowGenerator(false);
+      setGenForm({ subject: '', class_name: '', paper_type: 'class_test', total_marks: 100, duration_minutes: 60, topics: '', difficulty_distribution: { easy: 30, medium: 50, hard: 20 } });
+    } catch (e) {
+      setError(e.response?.data?.error || 'Failed to generate paper. Ensure relevant books are uploaded.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const togglePublish = async (id) => {
+    try {
+      const { data } = await questionPaperAPI.togglePublish(id);
+      setPapers((prev) => prev.map((p) => p.id === id ? data.paper : p));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const deletePaper = async (id) => {
+    if (!confirm('Delete this question paper?')) return;
+    await questionPaperAPI.delete(id);
+    setPapers((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  return (
+    <Layout title="Question Papers">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="font-semibold text-gray-800">Question Papers</h2>
+          <p className="text-sm text-gray-500">Generate AI-powered exam papers from your curriculum</p>
+        </div>
+        <button onClick={() => setShowGenerator(true)} className="btn-primary flex items-center gap-2">
+          <Wand2 size={16} /> Generate Paper
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm">
+          <X size={16} /> {error}
+          <button onClick={() => setError('')} className="ml-auto"><X size={14} /></button>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="grid gap-3">{[1,2,3].map((i) => <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+      ) : papers.length === 0 ? (
+        <div className="card text-center py-12">
+          <FileText size={40} className="mx-auto mb-3 text-gray-300" />
+          <p className="text-gray-500">No question papers yet</p>
+          <button onClick={() => setShowGenerator(true)} className="btn-primary mt-3 inline-flex items-center gap-2">
+            <Wand2 size={16} /> Generate First Paper
+          </button>
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {papers.map((p) => (
+            <div key={p.id} className="card hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-semibold text-gray-800 text-sm">{p.title}</h3>
+                    <span className={p.is_published ? 'badge-green' : 'badge-gray'}>
+                      {p.is_published ? 'Published' : 'Draft'}
+                    </span>
+                    <span className="badge-blue capitalize">{p.paper_type?.replace('_', ' ')}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {p.subject} • {p.class_name} • {p.total_marks} marks • {p.duration_minutes} min
+                    {p.questions?.length > 0 && ` • ${p.questions.length} questions`}
+                  </p>
+                  <p className="text-xs text-gray-400">{new Date(p.created_at).toLocaleDateString()}</p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    onClick={() => setViewPaper(p)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-blue-600"
+                    title="View paper"
+                  >
+                    <Eye size={16} />
+                  </button>
+                  <button
+                    onClick={() => togglePublish(p.id)}
+                    className={`p-1.5 rounded-lg hover:bg-gray-100 ${p.is_published ? 'text-green-600' : 'text-gray-400 hover:text-green-600'}`}
+                    title={p.is_published ? 'Unpublish' : 'Publish to students'}
+                  >
+                    {p.is_published ? <Globe size={16} /> : <EyeOff size={16} />}
+                  </button>
+                  <button
+                    onClick={() => deletePaper(p.id)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-600"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Generator Modal */}
+      {showGenerator && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-4">
+            <div className="p-5 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wand2 size={18} className="text-blue-600" />
+                <h2 className="font-bold text-gray-900">Generate Question Paper</h2>
+              </div>
+              <button onClick={() => setShowGenerator(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
+                  <select value={genForm.subject} onChange={(e) => setGen('subject', e.target.value)} className="input-field">
+                    <option value="">Select</option>
+                    {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Class *</label>
+                  <select value={genForm.class_name} onChange={(e) => setGen('class_name', e.target.value)} className="input-field">
+                    <option value="">Select</option>
+                    {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Paper Type</label>
+                  <select value={genForm.paper_type} onChange={(e) => setGen('paper_type', e.target.value)} className="input-field">
+                    {PAPER_TYPES.map((t) => <option key={t} value={t} className="capitalize">{t.replace('_', ' ')}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Marks</label>
+                  <input type="number" value={genForm.total_marks} onChange={(e) => setGen('total_marks', parseInt(e.target.value))} className="input-field" min="10" max="200" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Duration (min)</label>
+                  <input type="number" value={genForm.duration_minutes} onChange={(e) => setGen('duration_minutes', parseInt(e.target.value))} className="input-field" min="15" max="180" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Focus Topics (comma-separated, optional)</label>
+                <input type="text" value={genForm.topics} onChange={(e) => setGen('topics', e.target.value)} className="input-field" placeholder="e.g. Photosynthesis, Cell Division, Respiration" />
+              </div>
+              <div className="p-3 bg-amber-50 rounded-lg text-xs text-amber-700 border border-amber-200">
+                ⚠️ Ensure relevant books/materials for this subject and class are uploaded in the Knowledge Base before generating.
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setShowGenerator(false)} className="btn-secondary flex-1">Cancel</button>
+                <button onClick={generate} disabled={generating} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  {generating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                  {generating ? 'Generating...' : 'Generate'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Paper Modal */}
+      {viewPaper && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-4">
+            <div className="p-5 border-b flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-gray-900">{viewPaper.title}</h2>
+                <p className="text-sm text-gray-500">{viewPaper.total_marks} marks • {viewPaper.duration_minutes} min</p>
+              </div>
+              <button onClick={() => setViewPaper(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+              {viewPaper.questions?.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No questions available</p>
+              ) : (
+                viewPaper.questions?.map((q, i) => (
+                  <div key={i} className="border border-gray-200 rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-800">
+                          Q{q.number}. {q.question}
+                          <span className="ml-2 text-xs text-gray-400">({q.marks} marks)</span>
+                        </p>
+                        {q.options && (
+                          <div className="mt-2 space-y-1">
+                            {q.options.map((opt, j) => (
+                              <p key={j} className="text-xs text-gray-600 ml-3">{opt}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <span className={`badge shrink-0 ${q.difficulty === 'easy' ? 'badge-green' : q.difficulty === 'hard' ? 'badge-red' : 'badge-yellow'}`}>
+                        {q.difficulty}
+                      </span>
+                    </div>
+                    {/* Answer toggle */}
+                    {viewPaper.answer_key?.[i] && (
+                      <div className="mt-2">
+                        <button
+                          onClick={() => setExpandedAnswers((p) => ({ ...p, [i]: !p[i] }))}
+                          className="text-xs text-blue-600 flex items-center gap-1"
+                        >
+                          {expandedAnswers[i] ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                          {expandedAnswers[i] ? 'Hide Answer' : 'Show Answer Key'}
+                        </button>
+                        {expandedAnswers[i] && (
+                          <div className="mt-1 p-2 bg-green-50 rounded text-xs text-green-800">
+                            <strong>Answer:</strong> {viewPaper.answer_key[i]?.correct_answer}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </Layout>
+  );
+}

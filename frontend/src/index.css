@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { @apply border-gray-200; }
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg
+           transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed
+           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
+  }
+  .btn-secondary {
+    @apply bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg
+           border border-gray-300 transition-colors duration-200
+           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
+  }
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg
+           transition-colors duration-200;
+  }
+  .input-field {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-sm
+           focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent
+           placeholder-gray-400;
+  }
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-6;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-blue   { @apply badge bg-blue-100 text-blue-700; }
+  .badge-green  { @apply badge bg-green-100 text-green-700; }
+  .badge-yellow { @apply badge bg-yellow-100 text-yellow-700; }
+  .badge-red    { @apply badge bg-red-100 text-red-700; }
+  .badge-purple { @apply badge bg-purple-100 text-purple-700; }
+  .badge-gray   { @apply badge bg-gray-100 text-gray-600; }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { @apply bg-gray-100 rounded-full; }
+::-webkit-scrollbar-thumb { @apply bg-gray-300 rounded-full hover:bg-gray-400; }
+
+/* Chat message prose */
+.prose-chat { @apply text-sm leading-relaxed; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 { @apply font-semibold mt-3 mb-1; }
+.prose-chat h1 { @apply text-base; }
+.prose-chat h2 { @apply text-sm; }
+.prose-chat p  { @apply mb-2; }
+.prose-chat ul, .prose-chat ol { @apply pl-4 mb-2; }
+.prose-chat li { @apply mb-1; }
+.prose-chat ul li { @apply list-disc; }
+.prose-chat ol li { @apply list-decimal; }
+.prose-chat code { @apply bg-gray-100 px-1 py-0.5 rounded text-xs font-mono; }
+.prose-chat pre { @apply bg-gray-800 text-gray-100 p-3 rounded-lg overflow-x-auto text-xs my-2; }
+.prose-chat pre code { @apply bg-transparent p-0; }
+.prose-chat strong { @apply font-semibold; }
+.prose-chat blockquote { @apply border-l-4 border-blue-300 pl-3 italic text-gray-600 my-2; }
+.prose-chat table { @apply w-full border-collapse text-xs my-2; }
+.prose-chat th { @apply bg-gray-100 border border-gray-200 px-2 py-1 text-left font-semibold; }
+.prose-chat td { @apply border border-gray-200 px-2 py-1; }
+
+/* Typing indicator */
+.typing-dot {
+  @apply w-2 h-2 bg-gray-400 rounded-full;
+  animation: typing-bounce 1.4s infinite ease-in-out;
+}
+.typing-dot:nth-child(1) { animation-delay: 0ms; }
+.typing-dot:nth-child(2) { animation-delay: 200ms; }
+.typing-dot:nth-child(3) { animation-delay: 400ms; }
+
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-6px); }
+}
+
+/* Animations */
+.fade-in { animation: fadeIn 0.3s ease-in-out; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

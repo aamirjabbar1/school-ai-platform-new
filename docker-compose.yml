@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    container_name: school_ai_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: school_ai_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-schooldb_secure_pass_2024}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - school_network
+
+  # Backend API Server
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: school_ai_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: school_ai_db
+      DB_USER: postgres
+      DB_PASSWORD: ${DB_PASSWORD:-schooldb_secure_pass_2024}
+      JWT_SECRET: ${JWT_SECRET:-change_this_to_a_secure_random_string_min_32_chars}
+      JWT_EXPIRES_IN: 7d
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      AI_MODEL: claude-opus-4-6
+      SCHOOL_NAME: ${SCHOOL_NAME:-My School}
+      FRONTEND_URL: http://localhost
+    volumes:
+      - uploads_data:/app/uploads
+    ports:
+      - "5000:5000"
+    networks:
+      - school_network
+
+  # Frontend (built and served by Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_SCHOOL_NAME: ${SCHOOL_NAME:-My School}
+        VITE_API_URL: /api
+    container_name: school_ai_frontend
+    restart: unless-stopped
+    networks:
+      - school_network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: school_ai_nginx
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - school_network
+
+volumes:
+  postgres_data:
+  uploads_data:
+
+networks:
+  school_network:
+    driver: bridge
