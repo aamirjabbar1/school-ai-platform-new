@@ -1,59 +1,236 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
+
+  # ─── PostgreSQL ─────────────────────────────────────────────────────────────
   postgres:
     image: postgres:16-alpine
     container_name: school_ai_db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: school_ai_db
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-schooldb_secure_pass_2024}
+      POSTGRES_DB: ${DB_NAME:-school_ai_db}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-school_ai_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - school_network
+
+  # ─── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: school_ai_redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save 60 1
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
       - school_network
 
-  # Backend API Server
+  # ─── MinIO Object Storage ────────────────────────────────────────────────────
+  minio:
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
+    container_name: school_ai_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # MinIO web console
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+    networks:
+      - school_network
+
+  # ─── MinIO bucket initializer (runs once then exits) ─────────────────────────
+  minio_init:
+    image: minio/mc:latest
+    container_name: school_ai_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+      mc mb --ignore-existing local/school-documents &&
+      mc mb --ignore-existing local/milvus &&
+      echo '[OK] MinIO buckets ready.'
+      "
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    networks:
+      - school_network
+
+  # ─── etcd (Milvus metadata store) ────────────────────────────────────────────
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    container_name: school_ai_etcd
+    restart: unless-stopped
+    environment:
+      ETCD_AUTO_COMPACTION_MODE: revision
+      ETCD_AUTO_COMPACTION_RETENTION: "1000"
+      ETCD_QUOTA_BACKEND_BYTES: "4294967296"
+      ETCD_SNAPSHOT_COUNT: "50000"
+    volumes:
+      - etcd_data:/etcd
+    command: >
+      etcd
+      --advertise-client-urls=http://127.0.0.1:2379
+      --listen-client-urls=http://0.0.0.0:2379
+      --data-dir=/etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+      start_period: 10s
+    networks:
+      - school_network
+
+  # ─── Milvus Vector Database ───────────────────────────────────────────────────
+  milvus:
+    image: milvusdb/milvus:v2.4.6
+    container_name: school_ai_milvus
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+      MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET_NAME: milvus
+      MINIO_USE_SSL: "false"
+    volumes:
+      - milvus_data:/var/lib/milvus
+    ports:
+      - "19530:19530"   # gRPC (pymilvus connection)
+      - "9091:9091"     # HTTP metrics + health
+    depends_on:
+      etcd:
+        condition: service_healthy
+      minio_init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 90s
+    networks:
+      - school_network
+
+  # ─── FastAPI Backend ──────────────────────────────────────────────────────────
   backend:
     build:
-      context: ./backend
+      context: ./backend-python
       dockerfile: Dockerfile
     container_name: school_ai_backend
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
     environment:
-      NODE_ENV: production
-      PORT: 5000
-      DB_HOST: postgres
-      DB_PORT: 5432
-      DB_NAME: school_ai_db
-      DB_USER: postgres
-      DB_PASSWORD: ${DB_PASSWORD:-schooldb_secure_pass_2024}
-      JWT_SECRET: ${JWT_SECRET:-change_this_to_a_secure_random_string_min_32_chars}
-      JWT_EXPIRES_IN: 7d
+      ENV: production
+      PORT: 8000
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-school_ai_db}
+      SYNC_DATABASE_URL: postgresql+psycopg2://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-school_ai_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: school-documents
+      MINIO_SECURE: "false"
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_DAYS: 7
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      AI_MODEL: claude-opus-4-6
+      AI_MODEL: ${AI_MODEL:-claude-opus-4-6}
       SCHOOL_NAME: ${SCHOOL_NAME:-My School}
-      FRONTEND_URL: http://localhost
+      SCHOOL_TAGLINE: ${SCHOOL_TAGLINE:-Excellence in Education}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      MAX_FILE_SIZE: 52428800
+      UPLOAD_DIR: /app/uploads
     volumes:
       - uploads_data:/app/uploads
-    ports:
-      - "5000:5000"
+      - model_cache:/root/.cache/fastembed
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - school_network
 
-  # Frontend (built and served by Nginx)
+  # ─── Celery Worker ────────────────────────────────────────────────────────────
+  celery_worker:
+    build:
+      context: ./backend-python
+      dockerfile: Dockerfile
+    container_name: school_ai_celery
+    restart: unless-stopped
+    command: celery -A celery_app worker --loglevel=info --concurrency=2 -Q default
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      milvus:
+        condition: service_healthy
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-school_ai_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: school-documents
+      MINIO_SECURE: "false"
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+      JWT_SECRET: ${JWT_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      AI_MODEL: ${AI_MODEL:-claude-opus-4-6}
+      SCHOOL_NAME: ${SCHOOL_NAME:-My School}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+      - model_cache:/root/.cache/fastembed
+    networks:
+      - school_network
+
+  # ─── Frontend (React → Nginx) ─────────────────────────────────────────────────
   frontend:
     build:
       context: ./frontend
@@ -66,14 +243,16 @@ services:
     networks:
       - school_network
 
-  # Nginx Reverse Proxy
+  # ─── Nginx Reverse Proxy ──────────────────────────────────────────────────────
   nginx:
     image: nginx:alpine
     container_name: school_ai_nginx
     restart: unless-stopped
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
     ports:
       - "80:80"
       - "443:443"
@@ -85,7 +264,12 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
+  minio_data:
+  etcd_data:
+  milvus_data:
   uploads_data:
+  model_cache:
 
 networks:
   school_network:

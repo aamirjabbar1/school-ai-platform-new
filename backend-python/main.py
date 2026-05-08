@@ -1,8 +1,8 @@
 import os
 from contextlib import asynccontextmanager
-
 from pathlib import Path
 from dotenv import load_dotenv
+
 load_dotenv(Path(__file__).resolve().parent / ".env", override=True)
 
 from fastapi import FastAPI, Request
@@ -16,7 +16,7 @@ from passlib.hash import bcrypt
 from sqlalchemy import select
 
 from config.database import init_db, async_session
-from config.settings import PORT, ENV, SCHOOL_NAME, FRONTEND_URL, UPLOAD_DIR
+from config.settings import PORT, ENV, SCHOOL_NAME, FRONTEND_URL, UPLOAD_DIR, MILVUS_HOST, MILVUS_PORT
 from models.models import User
 
 from routes.auth import router as auth_router
@@ -28,17 +28,16 @@ from routes.admin import router as admin_router
 from routes.notifications import router as notifications_router
 
 
-# ─── RATE LIMITER ─────────────────────────────────────────────────────────────
+# ─── Rate limiter ─────────────────────────────────────────────────────────────
 
 limiter = Limiter(key_func=get_remote_address)
 
 
-# ─── CREATE DEFAULT ADMIN ─────────────────────────────────────────────────────
+# ─── Default admin ────────────────────────────────────────────────────────────
 
 async def create_default_admin():
     try:
         async with async_session() as db:
-            # Use raw SQL to avoid datetime parsing issues with existing data
             from sqlalchemy import text
             result = await db.execute(text("SELECT id FROM users WHERE login_id = 'admin001'"))
             if not result.first():
@@ -53,25 +52,40 @@ async def create_default_admin():
                 db.add(admin)
                 await db.commit()
                 print("[OK] Default admin created: admin001 / admin123")
-                print("[!] IMPORTANT: Change the default admin password immediately!\n")
+                print("[!]  IMPORTANT: Change the default admin password immediately!\n")
     except Exception as e:
-        print(f"Default admin creation (non-fatal): {e}")
+        print(f"[WARN] Default admin creation (non-fatal): {e}")
 
 
-# ─── LIFESPAN ─────────────────────────────────────────────────────────────────
+# ─── Lifespan ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # PostgreSQL
     await init_db()
+
+    # Milvus: connect + ensure collection exists (sync calls in thread)
+    import asyncio
+    from services import vector_service
+    try:
+        await asyncio.to_thread(vector_service.connect, MILVUS_HOST, MILVUS_PORT)
+        await asyncio.to_thread(vector_service.ensure_collection)
+        print("[OK] Milvus collection ready.")
+    except Exception as exc:
+        print(f"[WARN] Milvus init failed (non-fatal, will retry on next request): {exc}")
+
     await create_default_admin()
-    print(f"\nSchool AI Platform Backend (Python)")
-    print(f"Server: http://localhost:{PORT}")
-    print(f"School: {SCHOOL_NAME}")
-    print(f"Environment: {ENV}\n")
+
+    print(f"\n{'='*50}")
+    print(f"  School AI Platform — {SCHOOL_NAME}")
+    print(f"  Environment : {ENV}")
+    print(f"  Docs        : http://localhost:{PORT}/docs")
+    print(f"{'='*50}\n")
+
     yield
 
 
-# ─── APP ──────────────────────────────────────────────────────────────────────
+# ─── App ──────────────────────────────────────────────────────────────────────
 
 app = FastAPI(
     title=f"{SCHOOL_NAME} API",
@@ -79,11 +93,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[FRONTEND_URL, "http://localhost:3000", "http://localhost:3001"],
@@ -92,13 +104,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static files
-os.makedirs(os.path.join(UPLOAD_DIR, "documents"), exist_ok=True)
+# Serve remaining local uploads (submissions still use local filesystem)
 os.makedirs(os.path.join(UPLOAD_DIR, "submissions"), exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
 
 
-# ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
+# ─── Health check ─────────────────────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
@@ -111,18 +122,16 @@ async def health():
     }
 
 
-# ─── REGISTER ROUTES ─────────────────────────────────────────────────────────
+# ─── Routes ───────────────────────────────────────────────────────────────────
 
-app.include_router(auth_router, prefix="/api")
-app.include_router(chat_router, prefix="/api")
-app.include_router(assignments_router, prefix="/api")
-app.include_router(documents_router, prefix="/api")
-app.include_router(qp_router, prefix="/api")
-app.include_router(admin_router, prefix="/api")
+app.include_router(auth_router,          prefix="/api")
+app.include_router(chat_router,          prefix="/api")
+app.include_router(assignments_router,   prefix="/api")
+app.include_router(documents_router,     prefix="/api")
+app.include_router(qp_router,            prefix="/api")
+app.include_router(admin_router,         prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 
-
-# ─── ROOT ROUTE ───────────────────────────────────────────────────────────────
 
 @app.get("/")
 async def root():
@@ -134,8 +143,6 @@ async def root():
         "api_base": "/api",
     }
 
-
-# ─── RUN ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn

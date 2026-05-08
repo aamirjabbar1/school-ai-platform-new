@@ -1,44 +1,16 @@
 import uuid
-import re
-from datetime import datetime
-from sqlalchemy import (
-    Column, String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, JSON,
-    TypeDecorator,
-)
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Text, Integer, Float, Boolean, DateTime, Date, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from config.database import Base
 
 
-class FlexDateTime(TypeDecorator):
-    """DateTime that handles Sequelize's timestamp format like '2026-03-24 15:22:03.154 +00:00'."""
-    impl = String  # Use String to bypass SQLAlchemy's built-in datetime parser
-    cache_ok = True
-
-    def process_bind_param(self, value, dialect):
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return value.isoformat()
-        return str(value)
-
-    def process_result_value(self, value, dialect):
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return value
-        if isinstance(value, str):
-            # Fix '2026-03-24 15:22:03.154 +00:00' → '2026-03-24T15:22:03.154+00:00'
-            s = re.sub(r"(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+([+-]\d{2}:\d{2})", r"\1\2", value)
-            s = s.replace(" ", "T", 1)
-            try:
-                return datetime.fromisoformat(s)
-            except ValueError:
-                return None
-        return value
-
-
 def gen_uuid():
     return str(uuid.uuid4())
+
+
+def utcnow():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ─── USER ─────────────────────────────────────────────────────────────────────
@@ -55,9 +27,9 @@ class User(Base):
     class_name = Column(String(50), nullable=True)
     subjects = Column(JSON, nullable=True, default=list)
     is_active = Column(Boolean, default=True)
-    last_login = Column(FlexDateTime, nullable=True)
-    created_at = Column(FlexDateTime, default=datetime.utcnow)
-    updated_at = Column(FlexDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     created_assignments = relationship("Assignment", back_populates="teacher", foreign_keys="Assignment.teacher_id")
     submissions = relationship("Submission", back_populates="student", foreign_keys="Submission.student_id")
@@ -96,8 +68,8 @@ class Assignment(Base):
     max_marks = Column(Integer, default=100)
     instructions = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(FlexDateTime, default=datetime.utcnow)
-    updated_at = Column(FlexDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     teacher = relationship("User", back_populates="created_assignments", foreign_keys=[teacher_id])
     submissions = relationship("Submission", back_populates="assignment")
@@ -128,10 +100,10 @@ class Submission(Base):
     status = Column(String(20), default="draft")
     grade = Column(Float, nullable=True)
     feedback = Column(Text, nullable=True)
-    submitted_at = Column(FlexDateTime, nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
     ai_generated = Column(Boolean, default=False)
-    created_at = Column(FlexDateTime, default=datetime.utcnow)
-    updated_at = Column(FlexDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     assignment = relationship("Assignment", back_populates="submissions")
     student = relationship("User", back_populates="submissions", foreign_keys=[student_id])
@@ -167,8 +139,8 @@ class Document(Base):
     is_ingested = Column(Boolean, default=False)
     total_chunks = Column(Integer, default=0)
     ingestion_error = Column(Text, nullable=True)
-    created_at = Column(FlexDateTime, default=datetime.utcnow)
-    updated_at = Column(FlexDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     uploader = relationship("User", back_populates="documents", foreign_keys=[uploaded_by])
     chunks = relationship("DocumentChunk", back_populates="document", cascade="all, delete-orphan")
@@ -199,8 +171,8 @@ class DocumentChunk(Base):
     chunk_text = Column(Text, nullable=False)
     chunk_index = Column(Integer, nullable=False)
     word_count = Column(Integer, default=0)
-    created_at = Column(FlexDateTime, default=datetime.utcnow)
-    updated_at = Column(FlexDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     document = relationship("Document", back_populates="chunks")
 
@@ -222,8 +194,8 @@ class QuestionPaper(Base):
     duration_minutes = Column(Integer, default=60)
     instructions = Column(Text, nullable=True)
     is_published = Column(Boolean, default=False)
-    created_at = Column(FlexDateTime, default=datetime.utcnow)
-    updated_at = Column(FlexDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     teacher = relationship("User", back_populates="question_papers", foreign_keys=[teacher_id])
 
@@ -254,8 +226,8 @@ class ChatHistory(Base):
     content = Column(Text, nullable=False)
     subject_context = Column(String(100), nullable=True)
     sources_used = Column(JSON, nullable=True, default=list)
-    created_at = Column(FlexDateTime, default=datetime.utcnow)
-    updated_at = Column(FlexDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     user = relationship("User", back_populates="chat_history")
 
@@ -281,8 +253,8 @@ class Notification(Base):
     type = Column(String(20), default="system")
     is_read = Column(Boolean, default=False)
     action_url = Column(String(255), nullable=True)
-    created_at = Column(FlexDateTime, default=datetime.utcnow)
-    updated_at = Column(FlexDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     user = relationship("User", back_populates="notifications")
 

@@ -75,7 +75,7 @@ async def chat_with_rag(user_message: str, db: AsyncSession, **options) -> dict:
     user_id = options.get("user_id")
     session_id = options.get("session_id")
 
-    search_results = await search_knowledge_base(user_message, db, subject=subject, class_level=class_level, limit=6)
+    search_results = await search_knowledge_base(user_message, subject=subject, class_level=class_level, limit=6)
     context = build_context(search_results)
 
     # Search user's past conversations for relevant memory
@@ -158,7 +158,7 @@ async def stream_chat_with_rag(user_message: str, db: AsyncSession, **options):
     user_id = options.get("user_id")
     session_id = options.get("session_id")
 
-    search_results = await search_knowledge_base(user_message, db, subject=subject, class_level=class_level, limit=6)
+    search_results = await search_knowledge_base(user_message, subject=subject, class_level=class_level, limit=6)
     context = build_context(search_results)
 
     # Search user's past conversations for relevant memory
@@ -240,7 +240,7 @@ async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
     difficulty = params.get("difficulty_distribution", {"easy": 30, "medium": 50, "hard": 20})
 
     topic_query = " ".join(topics) if topics else subject
-    search_results = await search_knowledge_base(topic_query, db, subject=subject, class_level=class_level, limit=15)
+    search_results = await search_knowledge_base(topic_query, subject=subject, class_level=class_level, limit=15)
     context = build_context(search_results)
 
     if not context:
@@ -348,7 +348,7 @@ async def generate_assignment_content(params: dict, db: AsyncSession) -> str:
     assignment_type = params.get("assignment_type", "homework")
     school = get_school()
 
-    search_results = await search_knowledge_base(topic, db, subject=subject, class_level=class_level, limit=8)
+    search_results = await search_knowledge_base(topic, subject=subject, class_level=class_level, limit=8)
     context = build_context(search_results)
 
     if not context:

@@ -1,12 +1,27 @@
+# ─── Node ──────────────────────────────────────────────────────────────────────
 node_modules/
-.env
-.env.local
 dist/
 build/
 *.log
+
+# ─── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.sqlite
+*.sqlite3
+
+# ─── Environment ───────────────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ─── Uploads (keep directory structure, ignore content) ────────────────────────
 uploads/documents/*
 uploads/submissions/*
 !uploads/documents/.gitkeep
 !uploads/submissions/.gitkeep
+
+# ─── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

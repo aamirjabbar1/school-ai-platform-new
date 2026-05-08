@@ -1,92 +1,86 @@
+"""
+Document ingestion pipeline:
+  1. Download file bytes from MinIO
+  2. Extract text (PDF / DOCX / DOC / TXT)
+  3. Split into 400-word chunks with 50-word overlap
+  4. Generate embeddings via fastembed (BAAI/bge-small-en-v1.5)
+  5. Insert chunk records into PostgreSQL (metadata + text)
+  6. Insert vectors into Milvus (chunk_id + embedding)
+  7. Update Document.is_ingested = True in PostgreSQL
+
+RAG search:
+  1. Embed the query (fastembed)
+  2. ANN search in Milvus with optional subject/class_level filter
+  3. Return structured results (chunk_text, document_title, subject, class_level)
+"""
+import asyncio
+import io
 import re
-from sqlalchemy import select, text, func
+import uuid
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.models import Document, DocumentChunk
+from services import storage_service, embedding_service, vector_service
 
-# ─── TEXT EXTRACTION ──────────────────────────────────────────────────────────
 
+# ─── TEXT EXTRACTION (operates on bytes) ──────────────────────────────────────
 
-def extract_text_from_pdf(file_path: str) -> str:
+def _extract_pdf(data: bytes) -> str:
     from pypdf import PdfReader
-    reader = PdfReader(file_path)
-    pages = [page.extract_text() or "" for page in reader.pages]
-    return "\n".join(pages)
+    reader = PdfReader(io.BytesIO(data))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
 
 
-def extract_text_from_docx(file_path: str) -> str:
-    from docx import Document as DocxDocument
-    doc = DocxDocument(file_path)
-    parts = []
-    # Extract paragraph text
-    for p in doc.paragraphs:
-        if p.text.strip():
-            parts.append(p.text)
-    # Extract table content (lesson plans often use tables)
+def _extract_docx(data: bytes) -> str:
+    from docx import Document as DocxDoc
+    doc = DocxDoc(io.BytesIO(data))
+    parts = [p.text for p in doc.paragraphs if p.text.strip()]
     for table in doc.tables:
         for row in table.rows:
-            cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+            cells = [c.text.strip() for c in row.cells if c.text.strip()]
             if cells:
                 parts.append(" | ".join(cells))
     return "\n".join(parts)
 
 
-def extract_text_from_txt(file_path: str) -> str:
-    with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-        return f.read()
-
-
-def extract_text_from_doc(file_path: str) -> str:
-    """Extract text from old .doc files using Word COM automation (Windows)."""
-    import os
-    abs_path = os.path.abspath(file_path)
+def _extract_doc(data: bytes) -> str:
+    """Old .doc format: try olefile binary extraction."""
     try:
-        import win32com.client
-        word = win32com.client.Dispatch("Word.Application")
-        word.Visible = False
-        doc = word.Documents.Open(abs_path)
-        text = doc.Content.Text
-        doc.Close(False)
-        word.Quit()
-        if not text or len(text.strip()) < 50:
-            raise ValueError("Could not extract meaningful text from .doc file")
-        return text
+        import olefile
+        ole = olefile.OleFileIO(io.BytesIO(data))
+        text_parts = []
+        for stream in ole.listdir():
+            try:
+                raw = ole.openstream(stream).read()
+                readable = re.findall(r'[\x20-\x7E؀-ۿݐ-ݿ]{10,}', raw.decode("utf-8", errors="ignore"))
+                text_parts.extend(readable)
+            except Exception:
+                pass
+        ole.close()
+        result = "\n".join(text_parts)
+        if len(result.strip()) < 50:
+            raise ValueError("olefile extracted too little text")
+        return result
     except ImportError:
-        # Fallback to olefile binary extraction
-        try:
-            import olefile
-            ole = olefile.OleFileIO(abs_path)
-            text_parts = []
-            for stream in ole.listdir():
-                try:
-                    raw = ole.openstream(stream).read()
-                    decoded = raw.decode("utf-8", errors="ignore")
-                    readable = re.findall(r'[\x20-\x7E\u0600-\u06FF\u0750-\u077F]{10,}', decoded)
-                    if readable:
-                        text_parts.extend(readable)
-                except Exception:
-                    pass
-            ole.close()
-            result = "\n".join(text_parts)
-            if len(result.strip()) < 50:
-                raise ValueError("Could not extract meaningful text from .doc file")
-            return result
-        except ImportError:
-            raise ValueError("pywin32 or olefile required for .doc files")
+        raise ValueError("olefile package required for .doc files")
 
 
-def extract_text(file_path: str, file_type: str) -> str:
+def _extract_txt(data: bytes) -> str:
+    return data.decode("utf-8", errors="replace")
+
+
+def extract_text_from_bytes(data: bytes, file_type: str) -> str:
     ext = file_type.lower().lstrip(".")
     if ext == "pdf":
-        return extract_text_from_pdf(file_path)
-    elif ext == "docx":
-        return extract_text_from_docx(file_path)
-    elif ext in ("doc", "inp"):
-        return extract_text_from_doc(file_path)
-    elif ext == "txt":
-        return extract_text_from_txt(file_path)
-    else:
-        raise ValueError(f"Unsupported file type: {file_type}")
+        return _extract_pdf(data)
+    if ext == "docx":
+        return _extract_docx(data)
+    if ext in ("doc", "inp"):
+        return _extract_doc(data)
+    if ext == "txt":
+        return _extract_txt(data)
+    raise ValueError(f"Unsupported file type: {file_type}")
 
 
 # ─── TEXT CHUNKING ────────────────────────────────────────────────────────────
@@ -99,57 +93,85 @@ def chunk_text(raw_text: str) -> list[dict]:
     cleaned = re.sub(r"\r\n", "\n", raw_text)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-
     if not cleaned:
         return []
 
     words = cleaned.split()
-    chunks = []
-    i = 0
-
+    chunks, i = [], 0
     while i < len(words):
         end = min(i + CHUNK_SIZE, len(words))
         chunk = " ".join(words[i:end])
         if len(chunk.strip()) > 50:
             chunks.append({"text": chunk.strip(), "word_count": end - i, "index": len(chunks)})
         i += CHUNK_SIZE - CHUNK_OVERLAP
-
     return chunks
 
 
-# ─── DOCUMENT INGESTION ──────────────────────────────────────────────────────
+# ─── DOCUMENT INGESTION ───────────────────────────────────────────────────────
 
-
-async def ingest_document(document_id: str, db: AsyncSession):
+async def ingest_document(document_id: str, db: AsyncSession) -> dict:
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()
     if not doc:
         raise ValueError("Document not found")
 
     try:
-        raw_text = extract_text(doc.file_path, doc.file_type)
+        # 1. Download from MinIO (sync → thread)
+        file_bytes = await asyncio.to_thread(storage_service.download_file, doc.file_path)
 
+        # 2. Extract text (sync CPU → thread)
+        raw_text = await asyncio.to_thread(extract_text_from_bytes, file_bytes, doc.file_type)
         if not raw_text or len(raw_text.strip()) < 50:
             raise ValueError("Could not extract meaningful text from document")
 
+        # 3. Chunk
         chunks = chunk_text(raw_text)
         if not chunks:
             raise ValueError("No valid text chunks could be created")
 
-        # Delete old chunks
+        # 4. Embed all chunks in one batch (sync CPU → thread)
+        texts = [c["text"] for c in chunks]
+        embeddings = await asyncio.to_thread(embedding_service.embed_texts, texts)
+
+        # 5. Delete old PostgreSQL chunks
         await db.execute(
             DocumentChunk.__table__.delete().where(DocumentChunk.document_id == document_id)
         )
 
-        # Insert new chunks
-        for chunk in chunks:
-            db.add(DocumentChunk(
+        # 6. Insert new PostgreSQL chunks (metadata + text)
+        pg_chunks = []
+        for chunk, emb in zip(chunks, embeddings):
+            chunk_id = str(uuid.uuid4())
+            pg_chunks.append(DocumentChunk(
+                id=chunk_id,
                 document_id=document_id,
                 chunk_text=chunk["text"],
                 chunk_index=chunk["index"],
                 word_count=chunk["word_count"],
             ))
+        db.add_all(pg_chunks)
+        await db.flush()  # get IDs without committing yet
 
+        # 7. Build Milvus records (use same chunk_id as PostgreSQL)
+        milvus_records = [
+            {
+                "chunk_id":       pg_c.id,
+                "document_id":    document_id,
+                "chunk_index":    chunk["index"],
+                "document_title": doc.title[:500],
+                "subject":        doc.subject[:100],
+                "class_level":    doc.class_level[:50],
+                "chunk_text":     chunk["text"][:8000],
+                "embedding":      emb,
+            }
+            for pg_c, chunk, emb in zip(pg_chunks, chunks, embeddings)
+        ]
+
+        # 8. Delete old Milvus vectors + insert new (sync → thread)
+        await asyncio.to_thread(vector_service.delete_document_chunks, document_id)
+        await asyncio.to_thread(vector_service.insert_chunks, milvus_records)
+
+        # 9. Update document status
         doc.is_ingested = True
         doc.total_chunks = len(chunks)
         doc.ingestion_error = None
@@ -157,79 +179,58 @@ async def ingest_document(document_id: str, db: AsyncSession):
 
         return {"success": True, "chunks_created": len(chunks)}
 
-    except Exception as e:
-        doc.is_ingested = False
-        doc.ingestion_error = str(e)
-        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        # Mark document as failed
+        try:
+            result = await db.execute(select(Document).where(Document.id == document_id))
+            doc = result.scalar_one_or_none()
+            if doc:
+                doc.is_ingested = False
+                doc.ingestion_error = str(exc)[:500]
+                await db.commit()
+        except Exception:
+            pass
         raise
 
 
-# ─── KNOWLEDGE BASE SEARCH ───────────────────────────────────────────────────
-
+# ─── KNOWLEDGE BASE SEARCH (vector search via Milvus) ────────────────────────
 
 async def search_knowledge_base(
-    query: str, db: AsyncSession, subject: str = None, class_level: str = None, limit: int = 8
+    query: str,
+    subject: str | None = None,
+    class_level: str | None = None,
+    limit: int = 8,
 ) -> list[dict]:
+    """
+    Semantic search over ingested document chunks using Milvus ANN.
+    Returns chunks sorted by cosine similarity.
+    """
     try:
-        keywords = [w for w in query.split() if len(w) > 2]
-        if not keywords:
-            return []
+        # Embed query (sync CPU → thread)
+        query_embedding = await asyncio.to_thread(embedding_service.embed_query, query)
 
-        # Build LIKE conditions - search in chunk_text, title, AND subject
-        chunk_conds = [f"dc.chunk_text LIKE :kw{i}" for i in range(len(keywords))]
-        title_conds = [f"d.title LIKE :kw{i}" for i in range(len(keywords))]
-        subject_conds = [f"d.subject LIKE :kw{i}" for i in range(len(keywords))]
-        # Match if ANY keyword found in chunk_text OR title OR subject
-        conditions = " OR ".join(chunk_conds + title_conds + subject_conds)
-
-        # Relevance = count of how many keywords match in each chunk + title bonus
-        relevance_parts = [f"(CASE WHEN dc.chunk_text LIKE :kw{i} THEN 1 ELSE 0 END)" for i in range(len(keywords))]
-        title_parts = [f"(CASE WHEN d.title LIKE :kw{i} THEN 3 ELSE 0 END)" for i in range(len(keywords))]
-        subject_parts = [f"(CASE WHEN d.subject LIKE :kw{i} THEN 2 ELSE 0 END)" for i in range(len(keywords))]
-        relevance_score = " + ".join(relevance_parts + title_parts + subject_parts)
-
-        params = {f"kw{i}": f"%{kw}%" for i, kw in enumerate(keywords)}
-        params["lim"] = limit
-
-        doc_filter = ""
-        if subject:
-            doc_filter += " AND d.subject LIKE :subject"
-            params["subject"] = f"%{subject}%"
-        if class_level:
-            doc_filter += " AND (d.class_level LIKE :class_level OR d.class_level = 'All Classes')"
-            params["class_level"] = f"%{class_level}%"
-
-        sql = text(f"""
-            SELECT
-                dc.id, dc.chunk_text, dc.chunk_index,
-                d.title AS document_title, d.subject, d.class_level,
-                ({relevance_score}) AS rank
-            FROM document_chunks dc
-            JOIN documents d ON dc.document_id = d.id
-            WHERE d.is_ingested = 1 AND ({conditions}) {doc_filter}
-            ORDER BY rank DESC, dc.chunk_index ASC
-            LIMIT :lim
-        """)
-
-        result = await db.execute(sql, params)
-        rows = result.mappings().all()
-        return [dict(r) for r in rows]
-
-    except Exception as e:
-        print(f"Knowledge base search error: {e}")
+        # Vector search in Milvus (sync → thread)
+        results = await asyncio.to_thread(
+            vector_service.search_chunks,
+            query_embedding,
+            subject,
+            class_level,
+            limit,
+        )
+        return results
+    except Exception as exc:
+        print(f"[search_knowledge_base] error: {exc}")
         return []
 
 
-# ─── BUILD CONTEXT ────────────────────────────────────────────────────────────
-
+# ─── BUILD CONTEXT STRING FOR PROMPTS ────────────────────────────────────────
 
 def build_context(search_results: list[dict]) -> str | None:
     if not search_results:
         return None
-
-    parts = []
-    for i, r in enumerate(search_results):
-        parts.append(
-            f'[Source {i + 1}: "{r["document_title"]}" ({r["subject"]} - {r["class_level"]})]\n{r["chunk_text"]}'
-        )
+    parts = [
+        f'[Source {i + 1}: "{r["document_title"]}" ({r["subject"]} – {r["class_level"]})]\n{r["chunk_text"]}'
+        for i, r in enumerate(search_results)
+    ]
     return "\n\n---\n\n".join(parts)
