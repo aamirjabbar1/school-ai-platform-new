@@ -32,6 +32,10 @@ CONTENT_TYPES = {
 async def get_documents(
     subject: str = None,
     class_level: str = None,
+    document_type: str = None,
+    language: str = None,
+    academic_year: str = None,
+    term: str = None,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -40,12 +44,24 @@ async def get_documents(
         query = query.where(Document.subject == subject)
     if class_level:
         query = query.where(Document.class_level == class_level)
+    if document_type:
+        query = query.where(Document.document_type == document_type)
+    if language:
+        query = query.where(Document.language == language)
+    if academic_year:
+        query = query.where(Document.academic_year == academic_year)
+    if term:
+        query = query.where(Document.term == term)
     query = query.order_by(Document.created_at.desc())
     result = await db.execute(query)
     return [d.to_dict() for d in result.scalars().all()]
 
 
 # ─── Upload ───────────────────────────────────────────────────────────────────
+
+ALLOWED_DOCUMENT_TYPES = {"book", "exam", "assignment", "notes", "worksheet"}
+ALLOWED_LANGUAGES = {"English", "Urdu", "Bilingual"}
+
 
 @router.post("/upload")
 async def upload_document(
@@ -54,6 +70,10 @@ async def upload_document(
     subject: str = Form(...),
     class_level: str = Form(...),
     description: str = Form(None),
+    document_type: str = Form("book"),
+    language: str = Form("English"),
+    academic_year: str = Form(None),
+    term: str = Form(None),
     user: User = Depends(require_roles("admin", "teacher")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -63,6 +83,10 @@ async def upload_document(
             status_code=400,
             detail=f"File type .{ext} not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
+    if document_type not in ALLOWED_DOCUMENT_TYPES:
+        raise HTTPException(status_code=400, detail=f"document_type must be one of: {', '.join(ALLOWED_DOCUMENT_TYPES)}")
+    if language not in ALLOWED_LANGUAGES:
+        raise HTTPException(status_code=400, detail=f"language must be one of: {', '.join(ALLOWED_LANGUAGES)}")
 
     content = await document.read()
 
@@ -75,6 +99,10 @@ async def upload_document(
     doc = Document(
         title=title, subject=subject, class_level=class_level,
         description=description,
+        document_type=document_type,
+        language=language,
+        academic_year=academic_year or None,
+        term=term or None,
         file_path="",          # filled in after MinIO upload
         file_name=document.filename,
         file_type=ext,

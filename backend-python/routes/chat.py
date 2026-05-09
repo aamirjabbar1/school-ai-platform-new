@@ -104,7 +104,12 @@ async def send_message(
     async def event_stream():
         full_response = ""
         sources = []
+        citations = []
+        web_searches = []
         try:
+            # Send session_id immediately so the client knows the session is live
+            yield f"data: {json.dumps({'type': 'start', 'session_id': session_id})}\n\n"
+
             async for event_type, data in stream_chat_with_rag(
                 body.message.strip(), db,
                 user_role=user.role,
@@ -114,20 +119,45 @@ async def send_message(
                 user_id=user.id,
                 session_id=session_id,
             ):
-                if event_type == "chunk":
+                if event_type == "text":
                     full_response += data
-                    yield f"data: {json.dumps({'type': 'chunk', 'content': data})}\n\n"
+                    yield f"data: {json.dumps({'type': 'text', 'text': data})}\n\n"
+
+                elif event_type == "citation":
+                    citations.append(data)
+                    yield f"data: {json.dumps({'type': 'citation', 'citation': data})}\n\n"
+
+                elif event_type == "web_search_query":
+                    yield f"data: {json.dumps({'type': 'web_search_query', 'query': data})}\n\n"
+
+                elif event_type == "web_search_result":
+                    web_searches.append(data)
+                    yield f"data: {json.dumps({'type': 'web_search_result', 'results': data})}\n\n"
+
+                elif event_type == "tool_use":
+                    yield f"data: {json.dumps({'type': 'tool_use', 'tool': data})}\n\n"
+
                 elif event_type == "done":
                     full_response = data["message"]
                     sources = data["sources"]
-                    # Save assistant response
+
+                    # Persist assistant message + structured sources for history
                     db.add(ChatHistory(
                         user_id=user.id, session_id=session_id, role="assistant",
                         content=full_response, subject_context=detected_subject,
-                        sources_used=sources,
+                        sources_used={
+                            "kb_sources":   sources,
+                            "citations":    data.get("citations", []),
+                            "web_searches": data.get("web_searches", []),
+                        },
                     ))
                     await db.commit()
-                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'sources': sources, 'context_found': data['context_found']})}\n\n"
+
+                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'sources': sources, 'citations': data.get('citations', []), 'web_searches': data.get('web_searches', []), 'context_found': data.get('context_found', False), 'usage': data.get('usage', {})})}\n\n"
+
+                elif event_type == "error":
+                    yield f"data: {json.dumps({'type': 'error', 'message': data.get('message', 'Unknown error')})}\n\n"
+
         except Exception as e:
             import traceback
             traceback.print_exc()

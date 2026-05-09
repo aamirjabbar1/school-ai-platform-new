@@ -3,7 +3,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { chatAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Send, Bot, User, BookOpen, Loader2, Trash2, Plus, X, Brain, AlertTriangle } from 'lucide-react';
+import {
+  Send, Bot, User, BookOpen, Loader2, Trash2, Plus, X,
+  Brain, AlertTriangle, Globe, Square, ChevronDown, ChevronUp, ExternalLink,
+} from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 const SUBJECTS = [
@@ -17,11 +20,135 @@ function parseDate(raw) {
   return isNaN(d) ? null : d;
 }
 
+// Normalize sources_used from history rows. Backend now stores it as
+// {kb_sources, citations, web_searches}; older rows may store an array.
+function normalizeSources(raw) {
+  if (!raw) return { kb_sources: [], citations: [], web_searches: [] };
+  if (Array.isArray(raw)) {
+    return { kb_sources: raw, citations: [], web_searches: [] };
+  }
+  return {
+    kb_sources:    raw.kb_sources    || [],
+    citations:     raw.citations     || [],
+    web_searches:  raw.web_searches  || [],
+  };
+}
+
+// ─── Inline citation badge ────────────────────────────────────────────────────
+function CitationBadge({ citation, index }) {
+  const [open, setOpen] = useState(false);
+  const isWeb = citation.type === 'web_search_result_location';
+
+  // Build display label
+  let label;
+  if (isWeb) {
+    try {
+      label = new URL(citation.url).hostname.replace('www.', '');
+    } catch {
+      label = citation.title || 'web';
+    }
+  } else {
+    label = citation.document_title || 'source';
+  }
+
+  const headerClass = isWeb
+    ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
+    : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100';
+
+  return (
+    <div className="inline-flex flex-col">
+      <button
+        onClick={() => setOpen(!open)}
+        className={`text-xs px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${headerClass}`}
+        title={citation.cited_text}
+      >
+        {isWeb && <Globe size={10} />}
+        <span className="font-medium">[{index + 1}]</span>
+        <span className="truncate max-w-[140px]">{label}</span>
+        {open ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
+      </button>
+
+      {open && (
+        <div className="mt-1 p-2 bg-white border border-gray-200 rounded-lg shadow-sm text-xs max-w-md">
+          {isWeb ? (
+            <>
+              <div className="font-semibold text-gray-800 mb-1">{citation.title}</div>
+              <a
+                href={citation.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 hover:underline flex items-center gap-1 mb-1.5 text-[11px] break-all"
+              >
+                {citation.url} <ExternalLink size={10} />
+              </a>
+            </>
+          ) : (
+            <>
+              <div className="font-semibold text-gray-800 mb-1">
+                {citation.document_title}
+              </div>
+              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-gray-500 mb-1.5">
+                {citation.subject && <span>{citation.subject}</span>}
+                {citation.class_level && <span>· {citation.class_level}</span>}
+                {citation.document_type && <span>· {citation.document_type}</span>}
+                {citation.chapter_number > 0 && (
+                  <span>· Ch. {citation.chapter_number}{citation.chapter_title ? `: ${citation.chapter_title}` : ''}</span>
+                )}
+                {citation.page_number > 0 && <span>· p. {citation.page_number}</span>}
+              </div>
+            </>
+          )}
+          <blockquote className="text-gray-600 italic border-l-2 border-gray-200 pl-2 leading-snug">
+            "{citation.cited_text}"
+          </blockquote>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Web search activity ──────────────────────────────────────────────────────
+function WebSearchTrace({ searches }) {
+  if (!searches?.length) return null;
+  return (
+    <div className="space-y-1">
+      {searches.map((s, i) => (
+        <div key={i} className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1.5">
+          <div className="flex items-center gap-1.5 font-medium">
+            <Globe size={11} />
+            <span>Searched the web for:</span>
+            <span className="italic">"{s.query}"</span>
+          </div>
+          {s.urls?.length > 0 && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {s.urls.slice(0, 5).map((u, j) => (
+                <a
+                  key={j}
+                  href={u.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] px-1.5 py-0.5 bg-white border border-emerald-200 rounded hover:bg-emerald-50 truncate max-w-[160px]"
+                  title={u.title}
+                >
+                  {(() => { try { return new URL(u.url).hostname.replace('www.', ''); } catch { return u.url; } })()}
+                </a>
+              ))}
+              {s.urls.length > 5 && (
+                <span className="text-[10px] text-emerald-600">+{s.urls.length - 5} more</span>
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Main component ──────────────────────────────────────────────────────────
 export default function ChatInterface({ role = 'student' }) {
-  const { user } = useAuth();
+  useAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const [sessionId, setSessionId] = useState(uuidv4());
   const [subject, setSubject] = useState('');
@@ -42,113 +169,205 @@ export default function ChatInterface({ role = 'student' }) {
   const loadHistory = useCallback(async (sid) => {
     try {
       const { data } = await chatAPI.getHistory({ session_id: sid });
-      setMessages(data.map((h) => ({
-        id: h.id,
-        role: h.role,
-        content: h.content,
-        sources: h.sources_used || [],
-      })));
-    } catch (e) {
-      console.error(e);
-    }
+      setMessages(data.map((h) => {
+        const src = normalizeSources(h.sources_used);
+        return {
+          id: h.id,
+          role: h.role,
+          content: h.content,
+          kb_sources:    src.kb_sources,
+          citations:     src.citations,
+          web_searches:  src.web_searches,
+        };
+      }));
+    } catch (e) { console.error(e); }
   }, []);
 
   const loadSessions = useCallback(async () => {
     try {
       const { data } = await chatAPI.getSessions();
       setSessions(data);
-      // Count total messages across all sessions for memory indicator
       const total = data.reduce((sum, s) => sum + (s.message_count || 0), 0);
       setMemoryCount(total);
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   }, []);
 
   useEffect(() => { loadSessions(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const stopStreaming = () => {
+    abortRef.current?.abort();
+  };
+
   const sendMessage = async (e) => {
     e?.preventDefault();
     const text = input.trim();
-    if (!text || loading || streaming) return;
+    if (!text || streaming) return;
 
-    const userMsg = { id: Date.now(), role: 'user', content: text, sources: [] };
+    const userMsg = { id: Date.now(), role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setStreaming(true);
-    setLoading(true);
 
-    // Placeholder for streaming assistant message
     const assistantMsgId = Date.now() + 1;
     setMessages((prev) => [...prev, {
-      id: assistantMsgId, role: 'assistant', content: '', sources: [], streaming: true
+      id: assistantMsgId,
+      role: 'assistant',
+      content: '',
+      citations: [],
+      web_searches: [],
+      kb_sources: [],
+      streaming: true,
     }]);
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      const response = await chatAPI.sendMessage({
-        message: text,
-        subject: subject || undefined,
-        session_id: sessionId,
-      });
+      const response = await chatAPI.sendMessage(
+        { message: text, subject: subject || undefined, session_id: sessionId },
+        controller.signal,
+      );
+
+      if (!response.ok || !response.body) {
+        throw new Error(`HTTP ${response.status}`);
+      }
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let fullContent = '';
-      let finalSources = [];
+      let buffer = '';
+
+      // ── SSE event-by-event parser ──────────────────────────────────────
+      // Events are separated by a blank line ("\n\n"). A single network read
+      // may contain partial events; keep them in `buffer` until terminated.
+      const handleEvent = (eventText) => {
+        for (const line of eventText.split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6);
+          if (!payload) continue;
+          let data;
+          try { data = JSON.parse(payload); } catch { continue; }
+          dispatchEvent(data);
+        }
+      };
+
+      const dispatchEvent = (data) => {
+        switch (data.type) {
+          case 'start':
+            // session confirmation; nothing to render
+            break;
+
+          case 'text':
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, content: m.content + data.text }
+                : m
+            ));
+            break;
+
+          case 'citation':
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, citations: [...(m.citations || []), data.citation] }
+                : m
+            ));
+            break;
+
+          case 'web_search_query':
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    web_searches: [
+                      ...(m.web_searches || []),
+                      { query: data.query, urls: [], pending: true },
+                    ],
+                  }
+                : m
+            ));
+            break;
+
+          case 'web_search_result':
+            setMessages((prev) => prev.map((m) => {
+              if (m.id !== assistantMsgId) return m;
+              const ws = [...(m.web_searches || [])];
+              // Attach to most recent pending search
+              for (let i = ws.length - 1; i >= 0; i--) {
+                if (ws[i].pending) {
+                  ws[i] = { ...ws[i], urls: data.results, pending: false };
+                  break;
+                }
+              }
+              return { ...m, web_searches: ws };
+            }));
+            break;
+
+          case 'tool_use':
+            // generic tool indicator (non-search tools, future)
+            break;
+
+          case 'done':
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    content:       data.message || m.content,
+                    citations:     data.citations    || m.citations,
+                    web_searches:  data.web_searches || m.web_searches,
+                    kb_sources:    data.sources      || [],
+                    streaming:     false,
+                  }
+                : m
+            ));
+            break;
+
+          case 'error':
+            setMessages((prev) => prev.map((m) =>
+              m.id === assistantMsgId
+                ? { ...m, content: `Error: ${data.message}`, streaming: false }
+                : m
+            ));
+            break;
+
+          default:
+            // forward-compatibility: ignore unknown event types
+            break;
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
+        buffer += decoder.decode(value, { stream: true });
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === 'chunk') {
-                fullContent += data.content;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsgId
-                      ? { ...m, content: fullContent }
-                      : m
-                  )
-                );
-              } else if (data.type === 'done') {
-                finalSources = data.sources || [];
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsgId
-                      ? { ...m, content: fullContent, sources: finalSources, streaming: false }
-                      : m
-                  )
-                );
-              } else if (data.type === 'error') {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantMsgId
-                      ? { ...m, content: 'Sorry, an error occurred. Please try again.', streaming: false }
-                      : m
-                  )
-                );
-              }
-            } catch {}
-          }
+        // Split out fully-terminated events. Anything after the last "\n\n"
+        // is a partial event still being received — keep it in buffer.
+        let sepIdx;
+        while ((sepIdx = buffer.indexOf('\n\n')) !== -1) {
+          const eventText = buffer.slice(0, sepIdx);
+          buffer = buffer.slice(sepIdx + 2);
+          if (eventText.trim()) handleEvent(eventText);
         }
       }
+
+      // Drain any remaining content (partial event without trailing blank line)
+      if (buffer.trim()) handleEvent(buffer);
+
     } catch (err) {
-      setMessages((prev) =>
-        prev.map((m) =>
+      if (err.name === 'AbortError') {
+        setMessages((prev) => prev.map((m) =>
+          m.id === assistantMsgId ? { ...m, streaming: false } : m
+        ));
+      } else {
+        setMessages((prev) => prev.map((m) =>
           m.id === assistantMsgId
-            ? { ...m, content: 'Connection error. Please try again.', streaming: false }
+            ? { ...m, content: m.content || 'Connection error. Please try again.', streaming: false }
             : m
-        )
-      );
+        ));
+      }
     } finally {
       setStreaming(false);
-      setLoading(false);
+      abortRef.current = null;
       loadSessions();
     }
   };
@@ -182,9 +401,7 @@ export default function ChatInterface({ role = 'student' }) {
       setMemoryCount(0);
       setShowClearConfirm(false);
       newChat();
-    } catch (e) {
-      console.error(e);
-    }
+    } catch (e) { console.error(e); }
   };
 
   return (
@@ -199,24 +416,16 @@ export default function ChatInterface({ role = 'student' }) {
             </button>
           </div>
 
-          {/* Memory indicator */}
           {memoryCount > 0 && (
             <div className="flex items-center gap-2 px-2 py-1.5 bg-purple-50 rounded-lg border border-purple-100">
               <Brain size={14} className="text-purple-600 shrink-0" />
-              <span className="text-xs text-purple-700 flex-1">
-                {memoryCount} messages remembered
-              </span>
-              <button
-                onClick={() => setShowClearConfirm(true)}
-                className="text-purple-400 hover:text-red-500 transition-colors"
-                title="Clear all memory"
-              >
+              <span className="text-xs text-purple-700 flex-1">{memoryCount} messages remembered</span>
+              <button onClick={() => setShowClearConfirm(true)} className="text-purple-400 hover:text-red-500 transition-colors" title="Clear all memory">
                 <Trash2 size={12} />
               </button>
             </div>
           )}
 
-          {/* Clear memory confirmation */}
           {showClearConfirm && (
             <div className="p-2 bg-red-50 rounded-lg border border-red-200">
               <div className="flex items-center gap-1.5 mb-2">
@@ -225,18 +434,8 @@ export default function ChatInterface({ role = 'student' }) {
               </div>
               <p className="text-xs text-red-600 mb-2">This will permanently erase the AI's memory of your past conversations.</p>
               <div className="flex gap-1.5">
-                <button
-                  onClick={clearAllMemory}
-                  className="flex-1 text-xs py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                >
-                  Delete All
-                </button>
-                <button
-                  onClick={() => setShowClearConfirm(false)}
-                  className="flex-1 text-xs py-1 bg-white text-gray-600 rounded border border-gray-200 hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
+                <button onClick={clearAllMemory} className="flex-1 text-xs py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors">Delete All</button>
+                <button onClick={() => setShowClearConfirm(false)} className="flex-1 text-xs py-1 bg-white text-gray-600 rounded border border-gray-200 hover:bg-gray-50 transition-colors">Cancel</button>
               </div>
             </div>
           )}
@@ -245,9 +444,7 @@ export default function ChatInterface({ role = 'student' }) {
             <Plus size={14} /> New Chat
           </button>
           <div className="overflow-y-auto space-y-1 flex-1">
-            {sessions.length === 0 && (
-              <p className="text-xs text-gray-400 text-center py-4">No chat history</p>
-            )}
+            {sessions.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No chat history</p>}
             {sessions.map((s) => (
               <button
                 key={s.session_id}
@@ -258,20 +455,13 @@ export default function ChatInterface({ role = 'student' }) {
               >
                 <div className="flex items-start justify-between gap-1">
                   <div className="min-w-0">
-                    <p className="text-xs font-medium text-gray-700 truncate">
-                      {s.first_message || 'Chat session'}
-                    </p>
-                    {s.subject && (
-                      <span className="text-xs text-blue-600">{s.subject}</span>
-                    )}
+                    <p className="text-xs font-medium text-gray-700 truncate">{s.first_message || 'Chat session'}</p>
+                    {s.subject && <span className="text-xs text-blue-600">{s.subject}</span>}
                     <p className="text-xs text-gray-400">
                       {(() => { const d = parseDate(s.last_message_at); return d ? d.toLocaleDateString() : ''; })()}
                     </p>
                   </div>
-                  <button
-                    onClick={(e) => deleteSession(s.session_id, e)}
-                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-0.5"
-                  >
+                  <button onClick={(e) => deleteSession(s.session_id, e)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-0.5">
                     <Trash2 size={12} />
                   </button>
                 </div>
@@ -283,7 +473,7 @@ export default function ChatInterface({ role = 'student' }) {
 
       {/* Main Chat */}
       <div className="flex-1 flex flex-col card p-0 overflow-hidden min-w-0">
-        {/* Chat Header */}
+        {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
           <div className="flex items-center gap-3">
             <button
@@ -305,9 +495,8 @@ export default function ChatInterface({ role = 'student' }) {
               </div>
               <p className="text-xs text-gray-500">
                 {memoryCount > 0
-                  ? 'Remembers your past conversations for personalized help'
-                  : 'Answers based strictly on school curriculum content'
-                }
+                  ? 'Cited answers from school books, with web search when needed'
+                  : 'Cited answers from school books, with web search when needed'}
               </p>
             </div>
           </div>
@@ -320,11 +509,7 @@ export default function ChatInterface({ role = 'student' }) {
               <option value="">All Subjects</option>
               {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
-            <button
-              onClick={newChat}
-              className="p-2 rounded-lg hover:bg-gray-100 text-gray-500"
-              title="New chat"
-            >
+            <button onClick={newChat} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="New chat">
               <Plus size={18} />
             </button>
           </div>
@@ -339,20 +524,15 @@ export default function ChatInterface({ role = 'student' }) {
               </div>
               <h3 className="font-semibold text-gray-800 mb-1">AI Academic Assistant</h3>
               <p className="text-sm text-gray-500 max-w-xs">
-                Ask questions about your subjects. I answer strictly from the school's curriculum and uploaded books.
+                Ask anything from your subjects. Answers are grounded in your school's curriculum, with citations from chapters &amp; pages.
               </p>
               {memoryCount > 0 && (
                 <p className="text-xs text-purple-600 mt-2 flex items-center gap-1">
-                  <Brain size={12} /> I remember your previous conversations and will build on them
+                  <Brain size={12} /> I remember our previous conversations
                 </p>
               )}
               <div className="mt-4 grid grid-cols-2 gap-2 w-full max-w-xs">
-                {[
-                  'Explain photosynthesis',
-                  'Summarize Chapter 3',
-                  'What is algebra?',
-                  'Create study notes',
-                ].map((q) => (
+                {['Explain photosynthesis', 'Summarize Chapter 3', 'What is algebra?', 'Create study notes'].map((q) => (
                   <button
                     key={q}
                     onClick={() => { setInput(q); inputRef.current?.focus(); }}
@@ -367,17 +547,24 @@ export default function ChatInterface({ role = 'student' }) {
 
           {messages.map((msg) => (
             <div key={msg.id} className={`flex gap-3 fade-in ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5
-                ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+              }`}>
                 {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
               </div>
-              <div className={`max-w-[80%] ${msg.role === 'user' ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
-                <div className={`rounded-2xl px-4 py-3 text-sm
-                  ${msg.role === 'user'
+
+              <div className={`max-w-[80%] flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                {/* Web search trace (above text, like ChatGPT) */}
+                {msg.role === 'assistant' && msg.web_searches?.length > 0 && (
+                  <WebSearchTrace searches={msg.web_searches} />
+                )}
+
+                {/* Message body */}
+                <div className={`rounded-2xl px-4 py-3 text-sm ${
+                  msg.role === 'user'
                     ? 'bg-blue-600 text-white rounded-tr-sm'
                     : 'bg-white border border-gray-100 shadow-sm text-gray-800 rounded-tl-sm'
-                  }`}
-                >
+                }`}>
                   {msg.role === 'user' ? (
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                   ) : (
@@ -389,9 +576,7 @@ export default function ChatInterface({ role = 'student' }) {
                           <div className="typing-dot" />
                         </div>
                       ) : (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                          {msg.content}
-                        </ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                       )}
                       {msg.streaming && msg.content && (
                         <span className="inline-block w-1 h-4 bg-gray-400 animate-pulse ml-0.5" />
@@ -399,13 +584,12 @@ export default function ChatInterface({ role = 'student' }) {
                     </div>
                   )}
                 </div>
-                {/* Sources */}
-                {msg.sources?.length > 0 && (
-                  <div className="flex flex-wrap gap-1">
-                    {msg.sources.slice(0, 3).map((s, i) => (
-                      <span key={i} className="text-xs px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full border border-blue-100">
-                        {s.title}
-                      </span>
+
+                {/* Citations (per-source citations from API) */}
+                {msg.role === 'assistant' && msg.citations?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {msg.citations.map((c, i) => (
+                      <CitationBadge key={i} citation={c} index={i} />
                     ))}
                   </div>
                 )}
@@ -427,16 +611,27 @@ export default function ChatInterface({ role = 'student' }) {
               disabled={streaming}
               className="flex-1 input-field disabled:bg-gray-50"
             />
-            <button
-              type="submit"
-              disabled={!input.trim() || streaming}
-              className="btn-primary px-3 py-2"
-            >
-              {streaming ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-            </button>
+            {streaming ? (
+              <button
+                type="button"
+                onClick={stopStreaming}
+                className="btn-primary px-3 py-2 bg-red-500 hover:bg-red-600 flex items-center gap-1"
+                title="Stop generating"
+              >
+                <Square size={16} fill="white" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim()}
+                className="btn-primary px-3 py-2"
+              >
+                <Send size={18} />
+              </button>
+            )}
           </form>
           <p className="text-xs text-gray-400 mt-1.5 text-center">
-            AI responses are limited to school curriculum materials only
+            Answers cite school curriculum. Web search used only when needed.
           </p>
         </div>
       </div>

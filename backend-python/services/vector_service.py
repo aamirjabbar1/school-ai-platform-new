@@ -3,19 +3,31 @@ Milvus vector database service.
 
 Collection: document_chunks
 Schema:
-  chunk_id       VARCHAR(36)         primary key (UUID from PostgreSQL)
-  document_id    VARCHAR(36)         for filtering + bulk delete
-  chunk_index    INT64               ordering within document
-  document_title VARCHAR(500)        shown as source citation
-  subject        VARCHAR(100)        filter by subject
-  class_level    VARCHAR(50)         filter by class level
-  chunk_text     VARCHAR(8000)       full chunk text (~400 words ≈ 2400 chars)
-  embedding      FLOAT_VECTOR(384)   BAAI/bge-small-en-v1.5 cosine embeddings
+  chunk_id        VARCHAR(36)          primary key (UUID from PostgreSQL)
+  document_id     VARCHAR(36)          bulk delete + filter
+  chunk_index     INT64                ordering within document
+  document_title  VARCHAR(500)         source citation display
+  subject         VARCHAR(100)         filter: Math, Science, English, Urdu …
+  class_level     VARCHAR(50)          filter: Grade 1 … Grade 12
+  document_type   VARCHAR(50)          filter: book | exam | assignment | notes | worksheet
+  language        VARCHAR(20)          filter: English | Urdu | Bilingual
+  academic_year   VARCHAR(20)          filter: 2024-2025
+  term            VARCHAR(30)          filter: Term 1 | Term 2 | Term 3 | Annual
+  chapter_number  INT64                citation: chapter position (0 = unknown)
+  chapter_title   VARCHAR(300)         citation: chapter heading text
+  page_number     INT64                citation: approximate page (0 = unknown)
+  chunk_text      VARCHAR(8000)        full chunk text (~400 words)
+  embedding       FLOAT_VECTOR(3072)   OpenAI text-embedding-3-large cosine embeddings
 
 Indexes:
-  embedding   → HNSW / COSINE  (ANN search)
-  document_id → INVERTED scalar (fast filter + bulk delete)
-  subject     → INVERTED scalar (fast filter)
+  embedding     → HNSW / COSINE        ANN search
+  document_id   → INVERTED scalar      fast filter + bulk delete
+  subject       → INVERTED scalar      fast filter
+  class_level   → INVERTED scalar      fast filter
+  document_type → INVERTED scalar      fast filter
+  language      → INVERTED scalar      fast filter
+  academic_year → INVERTED scalar      fast filter
+  term          → INVERTED scalar      fast filter
 
 All functions are synchronous (pymilvus is sync).
 Call from async contexts with `await asyncio.to_thread(fn, ...)`.
@@ -35,6 +47,9 @@ from services.embedding_service import EMBEDDING_DIM
 
 COLLECTION_NAME = "document_chunks"
 
+_INVERTED = {"index_type": "INVERTED"}
+
+
 # ─── Connection ───────────────────────────────────────────────────────────────
 
 def connect(host: str, port: int) -> None:
@@ -52,19 +67,34 @@ def ensure_collection() -> Collection:
         return col
 
     fields = [
-        FieldSchema(name="chunk_id",       dtype=DataType.VARCHAR, max_length=36,   is_primary=True, auto_id=False),
+        # ── Identity ──────────────────────────────────────────────────────────
+        FieldSchema(name="chunk_id",       dtype=DataType.VARCHAR, max_length=36,  is_primary=True, auto_id=False),
         FieldSchema(name="document_id",    dtype=DataType.VARCHAR, max_length=36),
         FieldSchema(name="chunk_index",    dtype=DataType.INT64),
+
+        # ── Document-level metadata ───────────────────────────────────────────
         FieldSchema(name="document_title", dtype=DataType.VARCHAR, max_length=500),
         FieldSchema(name="subject",        dtype=DataType.VARCHAR, max_length=100),
         FieldSchema(name="class_level",    dtype=DataType.VARCHAR, max_length=50),
+        FieldSchema(name="document_type",  dtype=DataType.VARCHAR, max_length=50),
+        FieldSchema(name="language",       dtype=DataType.VARCHAR, max_length=20),
+        FieldSchema(name="academic_year",  dtype=DataType.VARCHAR, max_length=20),
+        FieldSchema(name="term",           dtype=DataType.VARCHAR, max_length=30),
+
+        # ── Chunk-level location ──────────────────────────────────────────────
+        FieldSchema(name="chapter_number", dtype=DataType.INT64),
+        FieldSchema(name="chapter_title",  dtype=DataType.VARCHAR, max_length=300),
+        FieldSchema(name="page_number",    dtype=DataType.INT64),
+
+        # ── Content + vector ──────────────────────────────────────────────────
         FieldSchema(name="chunk_text",     dtype=DataType.VARCHAR, max_length=8000),
         FieldSchema(name="embedding",      dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
     ]
-    schema = CollectionSchema(fields, description="School curriculum document chunks with embeddings")
+
+    schema = CollectionSchema(fields, description="School curriculum document chunks")
     col = Collection(COLLECTION_NAME, schema, consistency_level="Strong")
 
-    # Vector index: HNSW with cosine similarity
+    # Vector index
     col.create_index(
         "embedding",
         {
@@ -74,18 +104,28 @@ def ensure_collection() -> Collection:
         },
     )
 
-    # Scalar indexes for fast filtering and deletion
-    col.create_index("document_id", {"index_type": "INVERTED"})
-    col.create_index("subject",     {"index_type": "INVERTED"})
+    # Scalar indexes for filtering
+    for field in ("document_id", "subject", "class_level", "document_type",
+                  "language", "academic_year", "term"):
+        col.create_index(field, _INVERTED)
 
     col.load()
-    print(f"[OK] Milvus collection '{COLLECTION_NAME}' created with HNSW index.")
+    print(f"[OK] Milvus collection '{COLLECTION_NAME}' created and loaded.")
     return col
 
 
+# Track whether we have already called load() in this process. Each Celery
+# worker process and the FastAPI process keep their own flag — that is safe
+# because Milvus holds the in-memory state server-side.
+_collection_loaded: bool = False
+
+
 def _get_collection() -> Collection:
+    global _collection_loaded
     col = Collection(COLLECTION_NAME)
-    col.load()
+    if not _collection_loaded:
+        col.load()
+        _collection_loaded = True
     return col
 
 
@@ -94,16 +134,21 @@ def _get_collection() -> Collection:
 def insert_chunks(chunks: list[dict]) -> None:
     """
     Insert a batch of chunk records.
-    Each dict must have: chunk_id, document_id, chunk_index, document_title,
-                         subject, class_level, chunk_text, embedding (list[float]).
+    Each dict must have all schema fields:
+      chunk_id, document_id, chunk_index, document_title, subject, class_level,
+      document_type, language, academic_year, term, chapter_number, chapter_title,
+      page_number, chunk_text, embedding.
     """
     if not chunks:
         return
 
     col = _get_collection()
     fields_order = [
-        "chunk_id", "document_id", "chunk_index", "document_title",
-        "subject", "class_level", "chunk_text", "embedding",
+        "chunk_id", "document_id", "chunk_index",
+        "document_title", "subject", "class_level",
+        "document_type", "language", "academic_year", "term",
+        "chapter_number", "chapter_title", "page_number",
+        "chunk_text", "embedding",
     ]
     data = [[c[f] for c in chunks] for f in fields_order]
     col.insert(data)
@@ -113,7 +158,6 @@ def insert_chunks(chunks: list[dict]) -> None:
 def delete_document_chunks(document_id: str) -> None:
     """Remove all vectors belonging to a document."""
     col = _get_collection()
-    # Query primary keys first, then delete by PK (most reliable approach)
     results = col.query(
         expr=f'document_id == "{document_id}"',
         output_fields=["chunk_id"],
@@ -122,10 +166,8 @@ def delete_document_chunks(document_id: str) -> None:
     if not results:
         return
     pks = [r["chunk_id"] for r in results]
-    # Delete in batches of 1000 to avoid expression length limits
-    batch_size = 1000
-    for i in range(0, len(pks), batch_size):
-        batch = pks[i : i + batch_size]
+    for i in range(0, len(pks), 1000):
+        batch = pks[i : i + 1000]
         pk_list = ", ".join(f'"{pk}"' for pk in batch)
         col.delete(f"chunk_id in [{pk_list}]")
     col.flush()
@@ -137,38 +179,45 @@ def search_chunks(
     query_embedding: list[float],
     subject: str | None = None,
     class_level: str | None = None,
+    document_type: str | None = None,
+    language: str | None = None,
+    academic_year: str | None = None,
+    term: str | None = None,
     limit: int = 8,
 ) -> list[dict]:
     """
-    ANN search. Returns chunks ordered by cosine similarity (highest first).
-    Optional subject/class_level filters are applied as scalar pre-filters.
+    ANN search with optional scalar pre-filters.
+    Returns chunks ordered by cosine similarity (highest first).
     """
     col = _get_collection()
 
-    # Build filter expression
     filters: list[str] = []
-    if subject:
-        safe_subject = subject.replace('"', '\\"')
-        filters.append(f'subject == "{safe_subject}"')
-    if class_level:
-        safe_class = class_level.replace('"', '\\"')
-        filters.append(f'class_level == "{safe_class}"')
-    expr = " && ".join(filters) if filters else None
+    for field, value in (
+        ("subject",       subject),
+        ("class_level",   class_level),
+        ("document_type", document_type),
+        ("language",      language),
+        ("academic_year", academic_year),
+        ("term",          term),
+    ):
+        if value:
+            safe = value.replace('"', '\\"')
+            filters.append(f'{field} == "{safe}"')
 
-    search_params = {
-        "metric_type": "COSINE",
-        "params": {"ef": 64},
-    }
+    expr = " && ".join(filters) if filters else None
 
     results = col.search(
         data=[query_embedding],
         anns_field="embedding",
-        param=search_params,
+        param={"metric_type": "COSINE", "params": {"ef": 64}},
         limit=limit,
         expr=expr,
         output_fields=[
             "chunk_id", "document_id", "chunk_index",
-            "document_title", "subject", "class_level", "chunk_text",
+            "document_title", "subject", "class_level",
+            "document_type", "language", "academic_year", "term",
+            "chapter_number", "chapter_title", "page_number",
+            "chunk_text",
         ],
         consistency_level="Strong",
     )
@@ -183,6 +232,13 @@ def search_chunks(
             "document_title": e.get("document_title"),
             "subject":        e.get("subject"),
             "class_level":    e.get("class_level"),
+            "document_type":  e.get("document_type"),
+            "language":       e.get("language"),
+            "academic_year":  e.get("academic_year"),
+            "term":           e.get("term"),
+            "chapter_number": e.get("chapter_number"),
+            "chapter_title":  e.get("chapter_title"),
+            "page_number":    e.get("page_number"),
             "chunk_text":     e.get("chunk_text"),
             "score":          float(hit.score),
         })

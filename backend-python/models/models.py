@@ -130,6 +130,14 @@ class Document(Base):
     title = Column(String(255), nullable=False)
     subject = Column(String(100), nullable=False)
     class_level = Column(String(50), nullable=False)
+    # document_type: "book" | "exam" | "assignment" | "notes" | "worksheet"
+    document_type = Column(String(50), nullable=False, default="book")
+    # language: "English" | "Urdu" | "Bilingual"
+    language = Column(String(20), nullable=False, default="English")
+    # academic_year e.g. "2024-2025"
+    academic_year = Column(String(20), nullable=True)
+    # term: "Term 1" | "Term 2" | "Term 3" | "Annual" | None
+    term = Column(String(30), nullable=True)
     description = Column(Text, nullable=True)
     file_path = Column(String(500), nullable=False)
     file_name = Column(String(255), nullable=False)
@@ -148,7 +156,9 @@ class Document(Base):
     def to_dict(self, exclude_path=True):
         d = {
             "id": self.id, "title": self.title, "subject": self.subject,
-            "class_level": self.class_level, "description": self.description,
+            "class_level": self.class_level, "document_type": self.document_type,
+            "language": self.language, "academic_year": self.academic_year,
+            "term": self.term, "description": self.description,
             "file_name": self.file_name, "file_type": self.file_type,
             "file_size": self.file_size, "uploaded_by": self.uploaded_by,
             "is_ingested": self.is_ingested, "total_chunks": self.total_chunks,

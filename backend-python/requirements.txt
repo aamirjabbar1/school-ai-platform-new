@@ -21,8 +21,8 @@ minio==7.2.12
 # ─── Vector database (Milvus) ─────────────────────────────────────────────────
 pymilvus==2.6.12
 
-# ─── Embeddings (local, no API key required) ──────────────────────────────────
-fastembed==0.3.6
+# ─── Embeddings (OpenAI API) ──────────────────────────────────────────────────
+openai>=1.0.0
 
 # ─── Auth & security ──────────────────────────────────────────────────────────
 python-jose[cryptography]==3.3.0

@@ -36,8 +36,9 @@ export const authAPI = {
 
 // ─── CHAT ─────────────────────────────────────────────────────────────────────
 export const chatAPI = {
-  // Returns EventSource for SSE streaming
-  sendMessage: (data) => {
+  // Returns a Response with an SSE-encoded body. Pass `signal` from an
+  // AbortController to support stop/cancel.
+  sendMessage: (data, signal) => {
     const token = localStorage.getItem('token');
     return fetch(`${API_BASE}/chat/message`, {
       method: 'POST',
@@ -46,6 +47,7 @@ export const chatAPI = {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(data),
+      signal,
     });
   },
   getHistory: (params) => api.get('/chat/history', { params }),
