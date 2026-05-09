@@ -129,6 +129,7 @@ services:
       MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       MINIO_BUCKET_NAME: milvus
       MINIO_USE_SSL: "false"
+      LOG_LEVEL: error
     volumes:
       - milvus_data:/var/lib/milvus
     ports:
