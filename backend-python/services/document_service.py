@@ -31,7 +31,13 @@ from services import storage_service, embedding_service, vector_service
 _CLAUDE_MODEL = "claude-sonnet-4-6"
 _PDF_PAGES_PER_CHUNK = 50
 _DOCX_WORDS_PER_BATCH = 3000
-_MAX_CONCURRENT_CLAUDE_CALLS = 3
+
+# Org limit is 30k input tokens/min on Sonnet 4.6.
+# A 50-page chunk can be 10–25k tokens, so concurrent calls burst past the limit.
+# Keep calls sequential (1 at a time) and add a gap between them.
+# The SDK retries on 429 with exponential backoff when max_retries > 0.
+_MAX_CONCURRENT_CLAUDE_CALLS = 1
+_INTER_CHUNK_DELAY_SECS = 2
 
 _EXTRACTION_PROMPT = (
     "Extract all text from this PDF exactly as written. "
@@ -52,15 +58,26 @@ _STRUCTURING_PROMPT = (
 # ─── CLAUDE-BASED TEXT EXTRACTION ─────────────────────────────────────────────
 
 async def _extract_pdf_claude(data: bytes) -> str:
-    """Split PDF into 50-page chunks, extract text from each via Claude Sonnet."""
+    """Split PDF into 50-page chunks, extract text sequentially via Claude Sonnet.
+
+    Chunks are processed one at a time with a short delay between calls to stay
+    within the org's token-per-minute rate limit. The client is configured with
+    max_retries=5 so the SDK's exponential-backoff logic handles any residual
+    429s without crashing the task.
+    """
     from pypdf import PdfReader, PdfWriter
 
-    client = anthropic.AsyncAnthropic()
-    sem = asyncio.Semaphore(_MAX_CONCURRENT_CLAUDE_CALLS)
+    # max_retries enables the SDK's built-in exponential backoff on 429/529.
+    client = anthropic.AsyncAnthropic(max_retries=5)
     reader = PdfReader(io.BytesIO(data))
     total_pages = len(reader.pages)
 
-    async def process_chunk(start: int, end: int) -> str:
+    chunk_starts = list(range(0, total_pages, _PDF_PAGES_PER_CHUNK))
+    results: list[str] = []
+
+    for i, start in enumerate(chunk_starts):
+        end = min(start + _PDF_PAGES_PER_CHUNK, total_pages)
+
         writer = PdfWriter()
         for page_num in range(start, end):
             writer.add_page(reader.pages[page_num])
@@ -69,41 +86,39 @@ async def _extract_pdf_claude(data: bytes) -> str:
         writer.write(chunk_buf)
         pdf_b64 = base64.standard_b64encode(chunk_buf.getvalue()).decode()
 
-        async with sem:
-            response = await client.messages.create(
-                model=_CLAUDE_MODEL,
-                max_tokens=8192,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "document",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "application/pdf",
-                                "data": pdf_b64,
-                            },
+        response = await client.messages.create(
+            model=_CLAUDE_MODEL,
+            max_tokens=8192,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": pdf_b64,
                         },
-                        {"type": "text", "text": _EXTRACTION_PROMPT},
-                    ],
-                }],
-            )
-        return response.content[0].text
+                    },
+                    {"type": "text", "text": _EXTRACTION_PROMPT},
+                ],
+            }],
+        )
+        results.append(response.content[0].text)
 
-    tasks = [
-        process_chunk(start, min(start + _PDF_PAGES_PER_CHUNK, total_pages))
-        for start in range(0, total_pages, _PDF_PAGES_PER_CHUNK)
-    ]
-    results = await asyncio.gather(*tasks)
+        # Pause between chunks (not after the last one) to spread token usage
+        # across the rate-limit window and avoid 429s on back-to-back calls.
+        if i < len(chunk_starts) - 1:
+            await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
+
     return "\n\n".join(results)
 
 
 async def _extract_docx_claude(data: bytes) -> str:
-    """Extract DOCX content via python-docx, then structure and clean via Claude Sonnet."""
+    """Extract DOCX content via python-docx, then structure sequentially via Claude Sonnet."""
     from docx import Document as DocxDoc
 
-    client = anthropic.AsyncAnthropic()
-    sem = asyncio.Semaphore(_MAX_CONCURRENT_CLAUDE_CALLS)
+    client = anthropic.AsyncAnthropic(max_retries=5)
     doc = DocxDoc(io.BytesIO(data))
 
     raw_blocks: list[str] = []
@@ -143,19 +158,20 @@ async def _extract_docx_claude(data: bytes) -> str:
     if not batches:
         return ""
 
-    async def process_batch(raw_text: str) -> str:
-        async with sem:
-            response = await client.messages.create(
-                model=_CLAUDE_MODEL,
-                max_tokens=8192,
-                messages=[{
-                    "role": "user",
-                    "content": _STRUCTURING_PROMPT + raw_text,
-                }],
-            )
-        return response.content[0].text
+    results: list[str] = []
+    for i, raw_text in enumerate(batches):
+        response = await client.messages.create(
+            model=_CLAUDE_MODEL,
+            max_tokens=8192,
+            messages=[{
+                "role": "user",
+                "content": _STRUCTURING_PROMPT + raw_text,
+            }],
+        )
+        results.append(response.content[0].text)
+        if i < len(batches) - 1:
+            await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
 
-    results = await asyncio.gather(*[process_batch(b) for b in batches])
     return "\n\n".join(results)
 
 
@@ -371,24 +387,41 @@ async def search_knowledge_base(
     limit: int = 8,
 ) -> list[dict]:
     """
-    Semantic search over ingested document chunks.
-    All filter parameters are optional and can be combined.
-    document_type: "book" | "exam" | "assignment" | "notes" | "worksheet"
+    Semantic search with progressive filter fallback.
+
+    Tries filters from most-specific to least-specific so that a student asking
+    about Chemistry still gets an answer when only a Computer Science book is
+    loaded — rather than silently returning nothing.
+
+    Fallback ladder:
+      1. All supplied filters (exact match)
+      2. Drop subject  (same class, any subject)
+      3. Drop class    (any subject, any class)
+      4. No filters    (entire knowledge base)
     """
     try:
         query_embedding = await asyncio.to_thread(embedding_service.embed_query, query)
-        results = await asyncio.to_thread(
-            vector_service.search_chunks,
-            query_embedding,
-            subject,
-            class_level,
-            document_type,
-            language,
-            academic_year,
-            term,
-            limit,
-        )
-        return results
+
+        filter_ladder = [
+            # (subject,  class_level,  document_type, language, academic_year, term)
+            (subject,   class_level,  document_type, language, academic_year, term),
+            (None,      class_level,  document_type, language, academic_year, term),
+            (None,      None,         document_type, language, None,          None),
+            (None,      None,         None,          None,     None,          None),
+        ]
+
+        for (s, cl, dt, lang, ay, t) in filter_ladder:
+            results = await asyncio.to_thread(
+                vector_service.search_chunks,
+                query_embedding,
+                s, cl, dt, lang, ay, t,
+                limit,
+            )
+            if results:
+                return results
+
+        return []
+
     except Exception as exc:
         print(f"[search_knowledge_base] error: {exc}")
         return []

@@ -10,7 +10,7 @@ import secrets
 import string
 from io import BytesIO
 import pdfplumber
-from passlib.hash import bcrypt
+from utils.password import hash_password
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from sqlalchemy import select
@@ -215,7 +215,7 @@ async def create_student_accounts(
         new_user = User(
             name=rec["name"],
             login_id=login_id,
-            password_hash=bcrypt.hash(password),
+            password_hash=hash_password(password),
             role="student",
             class_name=class_name,
             is_active=True,

@@ -1,7 +1,7 @@
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from passlib.hash import bcrypt
+from utils.password import hash_password, verify_password
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +30,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="Invalid credentials or account is inactive")
 
-    if not bcrypt.verify(body.password, user.password_hash):
+    if not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user.last_login = datetime.utcnow()
@@ -65,9 +65,9 @@ async def change_password(
     if len(body.new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
 
-    if not bcrypt.verify(body.current_password, user.password_hash):
+    if not verify_password(body.current_password, user.password_hash):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
 
-    user.password_hash = bcrypt.hash(body.new_password)
+    user.password_hash = hash_password(body.new_password)
     await db.commit()
     return {"message": "Password changed successfully"}

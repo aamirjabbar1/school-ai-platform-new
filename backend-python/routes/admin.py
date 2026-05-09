@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
-from passlib.hash import bcrypt
+from utils.password import hash_password
 from sqlalchemy import select, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -135,9 +135,11 @@ async def create_user(
         raise HTTPException(status_code=400, detail="Login ID already exists")
 
     new_user = User(
-        name=body.name, login_id=body.login_id, email=body.email,
-        password_hash=bcrypt.hash(body.password), role=body.role,
-        class_name=body.class_name, subjects=body.subjects, is_active=True,
+        name=body.name, login_id=body.login_id,
+        email=body.email or None,        # coerce "" → None to avoid UNIQUE collision
+        password_hash=hash_password(body.password), role=body.role,
+        class_name=body.class_name or None,
+        subjects=body.subjects, is_active=True,
     )
     db.add(new_user)
     await db.commit()
@@ -162,7 +164,7 @@ async def bulk_create_users(
 
             new_user = User(
                 name=u_data["name"], login_id=login_id,
-                password_hash=bcrypt.hash(u_data.get("password", login_id)),
+                password_hash=hash_password(u_data.get("password", login_id)),
                 role=u_data["role"], class_name=u_data.get("class_name"),
                 subjects=u_data.get("subjects", []),
             )
@@ -189,10 +191,13 @@ async def update_user(
 
     password = body.pop("password", None)
     if password:
-        target.password_hash = bcrypt.hash(password)
+        target.password_hash = hash_password(password)
 
     for key, val in body.items():
         if hasattr(target, key) and key not in ("id", "password_hash", "created_at"):
+            # Coerce empty strings to None for nullable unique columns
+            if key == "email" and val == "":
+                val = None
             setattr(target, key, val)
 
     await db.commit()

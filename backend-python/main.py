@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from passlib.hash import bcrypt
+from utils.password import hash_password
 from sqlalchemy import select
 
 from config.database import init_db, async_session
@@ -45,7 +45,7 @@ async def create_default_admin():
                     name="System Administrator",
                     login_id="admin001",
                     email="admin@school.edu",
-                    password_hash=bcrypt.hash("admin123"),
+                    password_hash=hash_password("admin123"),
                     role="admin",
                     is_active=True,
                 )

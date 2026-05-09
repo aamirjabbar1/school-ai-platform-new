@@ -32,9 +32,9 @@ SUBJECT_KEYWORDS = {
 }
 
 CLASS_PATTERNS = [
-    (r"\bgrade\s*(\d{1,2})\b", lambda m: f"Grade {m.group(1)}"),
-    (r"\bclass\s*(\d{1,2})\b", lambda m: f"Grade {m.group(1)}"),
-    (r"\b(\d{1,2})(?:th|st|nd|rd)\s*(?:grade|class)\b", lambda m: f"Grade {m.group(1)}"),
+    (r"\bgrade\s*(\d{1,2})\b", lambda m: f"Class {m.group(1)}"),
+    (r"\bclass\s*(\d{1,2})\b", lambda m: f"Class {m.group(1)}"),
+    (r"\b(\d{1,2})(?:th|st|nd|rd)\s*(?:grade|class)\b", lambda m: f"Class {m.group(1)}"),
 ]
 
 

@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import time
 import random
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
@@ -24,6 +25,48 @@ CONTENT_TYPES = {
     "txt":  "text/plain",
     "inp":  "application/octet-stream",
 }
+
+# ─── Auto-detection helpers ───────────────────────────────────────────────────
+
+_SUBJECT_KEYWORDS: dict[str, list[str]] = {
+    "Mathematics":      ["math", "maths", "algebra", "geometry", "calculus", "arithmetic", "trigonometry"],
+    "Physics":          ["physics", "phys"],
+    "Chemistry":        ["chemistry", "chem"],
+    "Biology":          ["biology", "bio"],
+    "Science":          ["science", "sci"],
+    "General Science":  ["general science", "general_science"],
+    "English":          ["english", "eng", "literature", "grammar"],
+    "Urdu":             ["urdu"],
+    "Islamiat":         ["islamiat", "islam", "islamic"],
+    "Computer Science": ["computer", "cs", "ict", "programming", "it"],
+    "Social Studies":   ["social", "civics", "citizenship"],
+    "History":          ["history", "hist"],
+    "Geography":        ["geography", "geo"],
+    "Economics":        ["economics", "econ"],
+}
+
+def _detect_subject(text: str) -> str:
+    lower = text.lower()
+    for subject, keywords in _SUBJECT_KEYWORDS.items():
+        if any(kw in lower for kw in keywords):
+            return subject
+    return "General"
+
+def _detect_class(text: str) -> str:
+    lower = text.lower()
+    for pattern in (
+        r"class\s*(\d{1,2})",
+        r"grade\s*(\d{1,2})",
+        r"\b(\d{1,2})(?:th|st|nd|rd)\s*(?:class|grade)\b",
+    ):
+        m = re.search(pattern, lower)
+        if m:
+            return f"Class {m.group(1)}"
+    return "General"
+
+def _title_from_filename(filename: str) -> str:
+    stem = os.path.splitext(filename)[0]
+    return re.sub(r"[\-_]+", " ", stem).strip()
 
 
 # ─── List documents ───────────────────────────────────────────────────────────
@@ -66,12 +109,12 @@ ALLOWED_LANGUAGES = {"English", "Urdu", "Bilingual"}
 @router.post("/upload")
 async def upload_document(
     document: UploadFile = File(...),
-    title: str = Form(...),
-    subject: str = Form(...),
-    class_level: str = Form(...),
+    title: str = Form(None),
+    subject: str = Form(None),
+    class_level: str = Form(None),
     description: str = Form(None),
-    document_type: str = Form("book"),
-    language: str = Form("English"),
+    document_type: str = Form(None),
+    language: str = Form(None),
     academic_year: str = Form(None),
     term: str = Form(None),
     user: User = Depends(require_roles("admin", "teacher")),
@@ -83,9 +126,17 @@ async def upload_document(
             status_code=400,
             detail=f"File type .{ext} not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
-    if document_type not in ALLOWED_DOCUMENT_TYPES:
+
+    # Auto-detect anything the caller did not supply
+    detected_title    = (title or "").strip()     or _title_from_filename(document.filename)
+    detected_subject  = (subject or "").strip()   or _detect_subject(document.filename)
+    detected_class    = (class_level or "").strip() or _detect_class(document.filename)
+    detected_type     = (document_type or "").strip() or "book"
+    detected_language = (language or "").strip()  or "English"
+
+    if detected_type not in ALLOWED_DOCUMENT_TYPES:
         raise HTTPException(status_code=400, detail=f"document_type must be one of: {', '.join(ALLOWED_DOCUMENT_TYPES)}")
-    if language not in ALLOWED_LANGUAGES:
+    if detected_language not in ALLOWED_LANGUAGES:
         raise HTTPException(status_code=400, detail=f"language must be one of: {', '.join(ALLOWED_LANGUAGES)}")
 
     content = await document.read()
@@ -97,10 +148,12 @@ async def upload_document(
 
     # Create DB record first to get document_id
     doc = Document(
-        title=title, subject=subject, class_level=class_level,
-        description=description,
-        document_type=document_type,
-        language=language,
+        title=detected_title,
+        subject=detected_subject,
+        class_level=detected_class,
+        description=description or None,
+        document_type=detected_type,
+        language=detected_language,
         academic_year=academic_year or None,
         term=term or None,
         file_path="",          # filled in after MinIO upload
@@ -127,7 +180,14 @@ async def upload_document(
     ingest_document_task.delay(doc.id)
 
     resp = doc.to_dict()
-    resp["message"] = "Document uploaded to MinIO. Ingestion queued in background worker."
+    resp["message"] = "Document uploaded. Ingestion queued in background worker."
+    resp["auto_detected"] = {
+        "title":         not (title or "").strip(),
+        "subject":       not (subject or "").strip(),
+        "class_level":   not (class_level or "").strip(),
+        "document_type": not (document_type or "").strip(),
+        "language":      not (language or "").strip(),
+    }
     return resp
 
 

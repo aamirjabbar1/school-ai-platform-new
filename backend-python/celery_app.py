@@ -20,4 +20,6 @@ celery_app.conf.update(
     task_reject_on_worker_lost=True,
     # Result expiry: keep task results for 1 day
     result_expires=86400,
+    # Suppress CPendingDeprecationWarning in Celery 5.x / 6.x
+    broker_connection_retry_on_startup=True,
 )

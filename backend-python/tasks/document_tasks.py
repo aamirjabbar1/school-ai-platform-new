@@ -11,8 +11,7 @@ from celery_app import celery_app
 )
 def ingest_document_task(self, document_id: str):
     """
-    Celery task: extract text from an uploaded document, split into chunks,
-    and persist them in the database for RAG search.
+    Celery task: extract, chunk, embed and persist a document for RAG search.
     Retries up to 3 times with a 60-second delay on failure.
     """
     try:
@@ -22,9 +21,61 @@ def ingest_document_task(self, document_id: str):
 
 
 async def _run_ingestion(document_id: str):
-    from config.database import async_session
+    """
+    Run the full ingestion pipeline inside a fresh event loop.
+
+    Key design decisions:
+    - We create a new async engine + session factory per invocation instead of
+      reusing the shared `config.database.async_session`. The shared engine's
+      connection pool is bound to the event loop that was current when the
+      engine was first used. Because `asyncio.run()` closes its loop on exit,
+      a retry in the same worker process would find those connections attached
+      to a closed loop → RuntimeError. A fresh engine avoids this entirely.
+    - We explicitly call `vector_service.connect()` because the Milvus
+      connection is established in `main.py` lifespan, which runs only in the
+      FastAPI process. The Celery worker is a separate process with no
+      connection until we make one here. pymilvus connection state is
+      synchronous and persists across `asyncio.run()` calls in the same
+      process, so it only needs to be set up once per worker process lifetime;
+      the guard inside `connect()` (connections.connect is idempotent) handles
+      that safely.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+    from config.settings import DATABASE_URL, MILVUS_HOST, MILVUS_PORT
+    from services import vector_service
     from services.document_service import ingest_document
 
-    async with async_session() as session:
-        result = await ingest_document(document_id, session)
-        print(f"[Celery] Document {document_id} ingested — {result['chunks_created']} chunks created.")
+    # ── Milvus: connect + ensure collection exists in this worker process ──
+    try:
+        vector_service.connect(MILVUS_HOST, MILVUS_PORT)
+        vector_service.ensure_collection()
+    except Exception as exc:
+        print(f"[Celery] Milvus setup warning: {exc}")
+        raise  # fail fast — no point continuing without a vector store
+
+    # ── Fresh async engine for this event-loop instance ───────────────────
+    # pool_size=2, max_overflow=0: minimal pool — the task only needs one
+    # connection, and we dispose the engine when finished.
+    engine = create_async_engine(
+        DATABASE_URL,
+        pool_size=2,
+        max_overflow=0,
+        pool_pre_ping=True,
+    )
+    session_factory = async_sessionmaker(
+        engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    try:
+        async with session_factory() as session:
+            result = await ingest_document(document_id, session)
+            print(
+                f"[Celery] Document {document_id} ingested — "
+                f"{result['chunks_created']} chunks created."
+            )
+    finally:
+        # Always release DB connections; prevents fd/connection leaks across
+        # retries in the same worker process.
+        await engine.dispose()
