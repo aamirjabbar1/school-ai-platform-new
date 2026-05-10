@@ -96,6 +96,8 @@ export const questionPaperAPI = {
   create: (data) => api.post('/question-papers', data),
   togglePublish: (id) => api.put(`/question-papers/${id}/publish`),
   delete: (id) => api.delete(`/question-papers/${id}`),
+  // Server-rendered PDF (teachers get answer key, students get questions only)
+  downloadPdf: (id) => api.get(`/question-papers/${id}/pdf`, { responseType: 'blob' }),
 };
 
 // ─── ADMIN ────────────────────────────────────────────────────────────────────

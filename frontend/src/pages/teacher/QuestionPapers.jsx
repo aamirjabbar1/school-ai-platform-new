@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import { questionPaperAPI } from '../../services/api';
-import { FileText, Wand2, Loader2, Eye, Trash2, Globe, EyeOff, Plus, X, CheckCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileText, Wand2, Loader2, Eye, Trash2, Globe, EyeOff, Plus, X, CheckCircle, ChevronDown, ChevronUp, Download } from 'lucide-react';
 
 const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Computer Science', 'Physics', 'Chemistry', 'Biology'];
 const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
@@ -65,6 +65,24 @@ export default function QuestionPapers() {
     setPapers((prev) => prev.filter((p) => p.id !== id));
   };
 
+  const downloadPdf = async (paper) => {
+    try {
+      const { data } = await questionPaperAPI.downloadPdf(paper.id);
+      const url = window.URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+      const link = document.createElement('a');
+      link.href = url;
+      const safe = (paper.title || 'paper').replace(/[^a-z0-9_-]+/gi, '_');
+      link.setAttribute('download', `${safe}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error(e);
+      setError('Failed to download PDF');
+    }
+  };
+
   return (
     <Layout title="Question Papers">
       <div className="flex items-center justify-between mb-5">
@@ -120,6 +138,13 @@ export default function QuestionPapers() {
                     title="View paper"
                   >
                     <Eye size={16} />
+                  </button>
+                  <button
+                    onClick={() => downloadPdf(p)}
+                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-indigo-600"
+                    title="Download PDF (with answer key)"
+                  >
+                    <Download size={16} />
                   </button>
                   <button
                     onClick={() => togglePublish(p.id)}
@@ -213,7 +238,16 @@ export default function QuestionPapers() {
                 <h2 className="font-bold text-gray-900">{viewPaper.title}</h2>
                 <p className="text-sm text-gray-500">{viewPaper.total_marks} marks • {viewPaper.duration_minutes} min</p>
               </div>
-              <button onClick={() => setViewPaper(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadPdf(viewPaper)}
+                  className="btn-secondary flex items-center gap-1.5 text-sm"
+                  title="Download PDF (with answer key)"
+                >
+                  <Download size={14} /> PDF
+                </button>
+                <button onClick={() => setViewPaper(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              </div>
             </div>
             <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
               {viewPaper.questions?.length === 0 ? (

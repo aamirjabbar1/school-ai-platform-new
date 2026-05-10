@@ -16,7 +16,7 @@ Schema:
   chapter_number  INT64                citation: chapter position (0 = unknown)
   chapter_title   VARCHAR(300)         citation: chapter heading text
   page_number     INT64                citation: approximate page (0 = unknown)
-  chunk_text      VARCHAR(8000)        full chunk text (~400 words)
+  chunk_text      VARCHAR(16000)       full chunk text (~600 words, tables/figures inline)
   embedding       FLOAT_VECTOR(3072)   OpenAI text-embedding-3-large cosine embeddings
 
 Indexes:
@@ -49,6 +49,11 @@ COLLECTION_NAME = "document_chunks"
 
 _INVERTED = {"index_type": "INVERTED"}
 
+# Maximum bytes for chunk_text. Bumped from 8000 → 16000 to fit larger
+# structure-aware chunks (~600 words) plus inline markdown tables and
+# [FIGURE: ...] descriptions without silent truncation.
+_CHUNK_TEXT_MAX_LENGTH = 16000
+
 
 # ─── Connection ───────────────────────────────────────────────────────────────
 
@@ -60,11 +65,25 @@ def connect(host: str, port: int) -> None:
 # ─── Collection bootstrap ─────────────────────────────────────────────────────
 
 def ensure_collection() -> Collection:
-    """Create the collection and indexes if they don't exist, then load it."""
+    """Create the collection and indexes if they don't exist, then load it.
+
+    If an existing collection has an old chunk_text max_length (< 16000), it
+    is dropped and recreated. Existing vectors are lost — re-ingest documents
+    after a schema bump.
+    """
     if utility.has_collection(COLLECTION_NAME):
         col = Collection(COLLECTION_NAME)
-        col.load()
-        return col
+        existing = {f.name: f for f in col.schema.fields}
+        ml = (existing.get("chunk_text").params or {}).get("max_length", 0) if "chunk_text" in existing else 0
+        if ml < _CHUNK_TEXT_MAX_LENGTH:
+            print(
+                f"[Milvus] Dropping '{COLLECTION_NAME}' — chunk_text max_length "
+                f"{ml} < required {_CHUNK_TEXT_MAX_LENGTH}. Re-ingest documents."
+            )
+            utility.drop_collection(COLLECTION_NAME)
+        else:
+            col.load()
+            return col
 
     fields = [
         # ── Identity ──────────────────────────────────────────────────────────
@@ -87,7 +106,7 @@ def ensure_collection() -> Collection:
         FieldSchema(name="page_number",    dtype=DataType.INT64),
 
         # ── Content + vector ──────────────────────────────────────────────────
-        FieldSchema(name="chunk_text",     dtype=DataType.VARCHAR, max_length=8000),
+        FieldSchema(name="chunk_text",     dtype=DataType.VARCHAR, max_length=_CHUNK_TEXT_MAX_LENGTH),
         FieldSchema(name="embedding",      dtype=DataType.FLOAT_VECTOR, dim=EMBEDDING_DIM),
     ]
 
@@ -106,7 +125,7 @@ def ensure_collection() -> Collection:
 
     # Scalar indexes for filtering
     for field in ("document_id", "subject", "class_level", "document_type",
-                  "language", "academic_year", "term"):
+                  "language", "academic_year", "term", "document_title"):
         col.create_index(field, _INVERTED)
 
     col.load()
@@ -243,3 +262,54 @@ def search_chunks(
             "score":          float(hit.score),
         })
     return chunks
+
+
+# ─── Full-document retrieval (exhaustive mode) ────────────────────────────────
+
+def query_all_chunks_for_document(
+    document_title: str,
+    subject: str | None = None,
+    class_level: str | None = None,
+    language: str | None = None,
+    chapter_title: str | None = None,
+    limit: int = 16384,
+) -> list[dict]:
+    """Fetch every chunk of a document (or chapter) in reading order.
+
+    Used for `exhaustive` queries where the agent needs ALL content, not
+    just a similar subset. Bypasses ANN search.
+    """
+    col = _get_collection()
+
+    def esc(s: str) -> str:
+        return s.replace('"', '\\"')
+
+    conditions = [f'document_title == "{esc(document_title)}"']
+    if subject:
+        conditions.append(f'subject == "{esc(subject)}"')
+    if class_level:
+        conditions.append(f'class_level == "{esc(class_level)}"')
+    if language:
+        conditions.append(f'language == "{esc(language)}"')
+    if chapter_title:
+        conditions.append(f'chapter_title == "{esc(chapter_title)}"')
+
+    expr = " && ".join(conditions)
+    results = col.query(
+        expr=expr,
+        output_fields=[
+            "chunk_id", "document_id", "chunk_index",
+            "document_title", "subject", "class_level",
+            "document_type", "language", "academic_year", "term",
+            "chapter_number", "chapter_title", "page_number",
+            "chunk_text",
+        ],
+        limit=limit,
+        consistency_level="Strong",
+    )
+
+    # Sort by document then chunk_index → preserves natural reading order
+    results.sort(key=lambda r: (r.get("document_title", ""), r.get("chunk_index", 0)))
+    for r in results:
+        r["score"] = 1.0
+    return results

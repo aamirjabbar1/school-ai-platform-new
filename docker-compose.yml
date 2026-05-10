@@ -186,8 +186,10 @@ services:
       SCHOOL_NAME: ${SCHOOL_NAME:-My School}
       SCHOOL_TAGLINE: ${SCHOOL_TAGLINE:-Excellence in Education}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
-      MAX_FILE_SIZE: 52428800
+      MAX_FILE_SIZE: 314572800
       UPLOAD_DIR: /app/uploads
+    ports:
+      - "8000:8000"
     volumes:
       - uploads_data:/app/uploads
       - model_cache:/root/.cache/fastembed
@@ -254,6 +256,23 @@ services:
         VITE_API_URL: /api
     container_name: school_ai_frontend
     restart: unless-stopped
+    ports:
+      - "3000:80"
+    networks:
+      - school_network
+
+  # ─── Attu (Milvus Web UI) ─────────────────────────────────────────────────────
+  attu:
+    image: zilliz/attu:v2.4
+    container_name: school_ai_attu
+    restart: unless-stopped
+    environment:
+      MILVUS_URL: milvus:19530
+    ports:
+      - "8090:3000"
+    depends_on:
+      milvus:
+        condition: service_healthy
     networks:
       - school_network
 

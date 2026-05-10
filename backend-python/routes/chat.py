@@ -104,7 +104,6 @@ async def send_message(
     async def event_stream():
         full_response = ""
         sources = []
-        citations = []
         web_searches = []
         try:
             # Send session_id immediately so the client knows the session is live
@@ -122,10 +121,6 @@ async def send_message(
                 if event_type == "text":
                     full_response += data
                     yield f"data: {json.dumps({'type': 'text', 'text': data})}\n\n"
-
-                elif event_type == "citation":
-                    citations.append(data)
-                    yield f"data: {json.dumps({'type': 'citation', 'citation': data})}\n\n"
 
                 elif event_type == "web_search_query":
                     yield f"data: {json.dumps({'type': 'web_search_query', 'query': data})}\n\n"
@@ -147,13 +142,12 @@ async def send_message(
                         content=full_response, subject_context=detected_subject,
                         sources_used={
                             "kb_sources":   sources,
-                            "citations":    data.get("citations", []),
                             "web_searches": data.get("web_searches", []),
                         },
                     ))
                     await db.commit()
 
-                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'sources': sources, 'citations': data.get('citations', []), 'web_searches': data.get('web_searches', []), 'context_found': data.get('context_found', False), 'usage': data.get('usage', {})})}\n\n"
+                    yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'sources': sources, 'web_searches': data.get('web_searches', []), 'context_found': data.get('context_found', False), 'usage': data.get('usage', {})})}\n\n"
 
                 elif event_type == "error":
                     yield f"data: {json.dumps({'type': 'error', 'message': data.get('message', 'Unknown error')})}\n\n"

@@ -2,17 +2,15 @@
 AI service — built on the official Anthropic Python SDK (AsyncAnthropic).
 
 Features:
-  • Real-time streaming (text_delta, citations_delta, tool_use, web search)
-  • Native Citations API — each RAG chunk becomes a citable custom-content document
-  • Web search tool (server-side, Anthropic-executed, with auto-citations)
+  • Real-time streaming (text_delta, tool_use, web search)
+  • Plain-text RAG context (no Anthropic Citations API)
+  • Web search tool (server-side, Anthropic-executed)
   • Structured outputs for exam papers via tool_use with strict JSON schema
   • Multi-language (English / Urdu) education-aligned system prompt
   • Persistent user memory + RAG knowledge-base context
   • Prompt caching on the static system prompt + tool definitions
-    (cache_control breakpoints per Anthropic prompt-caching guidelines)
 
 Reference: https://docs.claude.com/en/api/messages-streaming
-           https://docs.claude.com/en/build-with-claude/citations
            https://docs.claude.com/en/build-with-claude/prompt-caching
            https://docs.claude.com/en/agents-and-tools/tool-use/overview
            https://docs.claude.com/en/agents-and-tools/tool-use/web-search-tool
@@ -24,7 +22,7 @@ from typing import Any, AsyncGenerator
 import anthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.document_service import search_knowledge_base
+from services.document_service import search_knowledge_base, build_context
 from services.memory_service import search_user_memory, build_memory_context
 
 
@@ -52,12 +50,6 @@ def get_school() -> str:
 
 
 # ─── SYSTEM PROMPT ────────────────────────────────────────────────────────────
-#
-# Architecture: split into a STATIC block (role + school + rules — cacheable)
-# and a DYNAMIC block (per-query notes + memory — not cached). Cache breakpoint
-# sits on the static block. Per Anthropic docs, this lets Claude reuse the
-# static prefix across requests at 0.1× input rate when its token count
-# crosses the model's minimum cacheable threshold.
 
 def _static_system_text(role: str) -> str:
     """The role + school + rules portion. Identical across all requests for
@@ -68,10 +60,10 @@ def _static_system_text(role: str) -> str:
     text = f"""You are an educational AI assistant for {school}. Your role is to help {audience} with academic content.
 
 PRIMARY KNOWLEDGE SOURCE — School Knowledge Base
-The user will provide one or more curriculum documents alongside their question. Those documents are the authoritative source for school curriculum content.
+The user will provide curriculum content from one or more school documents alongside their question. Those documents are the authoritative source for school curriculum content.
 
 CRITICAL RULES:
-1. Answer school-curriculum questions PRIMARILY from the provided curriculum documents. When you draw on them, the API attaches structured citations automatically — do not format citations manually.
+1. Answer school-curriculum questions PRIMARILY from the provided curriculum content. You may refer to a chapter or page naturally in prose (e.g., "as covered in Chapter 5"), but do NOT include bracketed citation markers, footnote numbers, or [Source] tags in your answer.
 2. Use the web_search tool ONLY for: current events, real-world examples, supplementary background that is NOT a school curriculum topic, or when the documents lack enough information AND the question is general knowledge. Never use web_search to override or contradict curriculum content.
 3. If the question is about a specific curriculum topic and neither the documents nor a web search yields a confident answer, respond: "I cannot find this specific information in the available school materials. Please consult your {'teacher or ' if role == 'student' else ''}the relevant textbook."
 4. Be educational, clear, and supportive. Adapt depth to the audience.
@@ -97,9 +89,6 @@ def build_system_blocks(
     System as a list of content blocks:
       [0] static role/rules text  ←  cache_control: ephemeral  (cache breakpoint)
       [1] (optional) dynamic per-query notes + memory  ← NOT cached
-
-    This way the static prefix is reusable across requests while per-query
-    info (subject, kb-empty notice, memory recall) sits after the breakpoint.
     """
     blocks: list[dict] = [
         {
@@ -128,133 +117,30 @@ def build_system_blocks(
     return blocks
 
 
-# ─── BUILD CITATION DOCUMENTS FROM RAG RESULTS ───────────────────────────────
+# ─── BUILD KB SOURCES SUMMARY ────────────────────────────────────────────────
 
-def build_citation_documents(search_results: list[dict]) -> tuple[list[dict], list[dict]]:
-    """
-    Convert Milvus chunks into Anthropic citation documents.
-
-    Strategy: group chunks by source document_id so each source becomes one
-    custom-content document with multiple content blocks (one per chunk).
-    Citations will reference (document_index, start_block_index, end_block_index)
-    which we can map back to chapter/page metadata.
-
-    Returns:
-      documents: list[dict]  — Anthropic-format document content blocks
-      doc_metadata: list[dict] — parallel list with our metadata for citation
-                                  enrichment (one entry per document_index)
-    """
-    if not search_results:
-        return [], []
-
-    # Group chunks by document_id, preserving first-appearance order
-    grouped: dict[str, list[dict]] = {}
-    order: list[str] = []
+def build_kb_sources(search_results: list[dict]) -> list[dict]:
+    """Deduplicated list of source documents used in this answer (for UI display)."""
+    seen: set[str] = set()
+    sources: list[dict] = []
     for r in search_results:
-        doc_id = r.get("document_id") or r.get("document_title", "unknown")
-        if doc_id not in grouped:
-            grouped[doc_id] = []
-            order.append(doc_id)
-        grouped[doc_id].append(r)
-
-    documents: list[dict] = []
-    doc_metadata: list[dict] = []
-
-    for doc_id in order:
-        chunks = grouped[doc_id]
-        first = chunks[0]
-
-        # Custom content blocks — preserves chunk-level granularity for citations
-        content_blocks = [{"type": "text", "text": c["chunk_text"]} for c in chunks]
-
-        # Build a context string carrying metadata Claude can use but won't cite from
-        ctx_parts = [
-            f"Subject: {first['subject']}",
-            f"Class: {first['class_level']}",
-            f"Type: {first.get('document_type', 'book')}",
-        ]
-        if first.get("language"):
-            ctx_parts.append(f"Language: {first['language']}")
-        if first.get("term"):
-            ctx_parts.append(f"Term: {first['term']}")
-        if first.get("academic_year"):
-            ctx_parts.append(f"Academic Year: {first['academic_year']}")
-
-        documents.append({
-            "type": "document",
-            "source": {
-                "type": "content",
-                "content": content_blocks,
-            },
-            "title": (first["document_title"] or "Untitled")[:255],
-            "context": " | ".join(ctx_parts),
-            "citations": {"enabled": True},
+        key = r.get("document_id") or r.get("document_title", "")
+        if key in seen:
+            continue
+        seen.add(key)
+        sources.append({
+            "title":         r.get("document_title"),
+            "subject":       r.get("subject"),
+            "class_level":   r.get("class_level"),
+            "document_type": r.get("document_type", "book"),
         })
-
-        # Per-block metadata for citation enrichment (chapter, page, etc.)
-        block_meta = [
-            {
-                "chapter_number": c.get("chapter_number", 0),
-                "chapter_title":  c.get("chapter_title", ""),
-                "page_number":    c.get("page_number", 0),
-                "chunk_index":    c.get("chunk_index", 0),
-                "score":          c.get("score"),
-            }
-            for c in chunks
-        ]
-
-        doc_metadata.append({
-            "document_id":    doc_id,
-            "document_title": first["document_title"],
-            "subject":        first["subject"],
-            "class_level":    first["class_level"],
-            "document_type":  first.get("document_type", "book"),
-            "language":       first.get("language"),
-            "term":           first.get("term"),
-            "academic_year":  first.get("academic_year"),
-            "blocks":         block_meta,
-        })
-
-    return documents, doc_metadata
-
-
-def enrich_citation(citation: dict, doc_metadata: list[dict]) -> dict:
-    """Attach our extra metadata (chapter, page, subject, etc.) to a citation."""
-    out = dict(citation)
-    ctype = citation.get("type")
-    doc_idx = citation.get("document_index")
-
-    if ctype in ("content_block_location", "char_location", "page_location") \
-            and doc_idx is not None and 0 <= doc_idx < len(doc_metadata):
-        meta = doc_metadata[doc_idx]
-        out["subject"] = meta["subject"]
-        out["class_level"] = meta["class_level"]
-        out["document_type"] = meta["document_type"]
-        out["language"] = meta["language"]
-        out["term"] = meta["term"]
-        out["academic_year"] = meta["academic_year"]
-
-        # For custom-content citations, pull chapter/page from the cited block(s)
-        if ctype == "content_block_location":
-            start = citation.get("start_block_index", 0)
-            blocks = meta["blocks"]
-            if 0 <= start < len(blocks):
-                out["chapter_number"] = blocks[start]["chapter_number"]
-                out["chapter_title"] = blocks[start]["chapter_title"]
-                out["page_number"] = blocks[start]["page_number"]
-
-    return out
+    return sources
 
 
 # ─── TOOLS ────────────────────────────────────────────────────────────────────
 
 def build_web_search_tool(max_uses: int = 3, cached: bool = True) -> dict:
-    """
-    Anthropic-managed web search tool. Citations are automatic.
-
-    `cached=True` places a cache_control breakpoint on this tool definition
-    so the (static) tools array is reused across requests when long enough.
-    """
+    """Anthropic-managed web search tool."""
     tool: dict = {
         "type": "web_search_20250305",
         "name": "web_search",
@@ -329,11 +215,10 @@ async def stream_chat_with_rag(
 
     Event types:
       "text"              → str chunk to append
-      "citation"          → enriched citation dict (school doc OR web_search_result)
       "web_search_query"  → str (the query Claude searched for)
       "web_search_result" → list of {url, title, page_age} dicts
       "tool_use"          → dict {name, id} — non-search tool invocation
-      "done"              → {message, citations, web_searches, sources, context_found, usage}
+      "done"              → {message, web_searches, sources, context_found, usage}
       "error"             → {message}
     """
     user_role = options.get("user_role", "student")
@@ -347,7 +232,7 @@ async def stream_chat_with_rag(
     enable_web_search = options.get("enable_web_search", True)
 
     try:
-        # 1. RAG search → curriculum documents with native citations
+        # 1. RAG search → plain-text curriculum context
         search_results = await search_knowledge_base(
             user_message,
             subject=subject,
@@ -356,9 +241,10 @@ async def stream_chat_with_rag(
             language=language,
             limit=8,
         )
-        documents, doc_metadata = build_citation_documents(search_results)
+        kb_context = build_context(search_results)
+        kb_sources = build_kb_sources(search_results)
 
-        # 2. Past-conversation memory (text-only — not citable)
+        # 2. Past-conversation memory
         memory_context = ""
         if user_id:
             memories = await search_user_memory(
@@ -372,20 +258,27 @@ async def stream_chat_with_rag(
         system_blocks = build_system_blocks(
             user_role,
             subject,
-            has_kb_context=bool(documents),
+            has_kb_context=bool(kb_context),
             memory_context=memory_context,
         )
 
-        # 3. Build messages — documents go inside the user content block
+        # 3. Build messages — KB context goes inline as plain text
         history_msgs = [
             {"role": m["role"], "content": m["content"]}
             for m in conversation_history[-10:]
         ]
 
-        user_content: list[dict] = list(documents)
-        user_content.append({"type": "text", "text": user_message})
+        if kb_context:
+            user_text = (
+                "Use the following curriculum content from the school knowledge base to answer the question. "
+                "Refer to chapters or pages naturally in prose if helpful, but do not write bracketed citation "
+                "markers in your answer.\n\n"
+                f"{kb_context}\n\n---\n\nQuestion: {user_message}"
+            )
+        else:
+            user_text = user_message
 
-        messages = history_msgs + [{"role": "user", "content": user_content}]
+        messages = history_msgs + [{"role": "user", "content": user_text}]
 
         # 4. Tools — web search by default
         tools: list[dict] = []
@@ -395,7 +288,6 @@ async def stream_chat_with_rag(
         # 5. Stream
         client = get_async_client()
         full_text_parts: list[str] = []
-        all_citations: list[dict] = []
         web_searches: list[dict] = []  # {query, result_count, urls}
         current_search_query = ""
         current_search_id: str | None = None
@@ -414,7 +306,6 @@ async def stream_chat_with_rag(
             async for event in stream:
                 etype = event.type
 
-                # Block start — detect what kind of block we're entering
                 if etype == "content_block_start":
                     block = event.content_block
                     btype = getattr(block, "type", None)
@@ -422,7 +313,6 @@ async def stream_chat_with_rag(
                         current_search_id = block.id
                         current_search_query = ""
 
-                # Delta events
                 elif etype == "content_block_delta":
                     delta = event.delta
                     dtype = getattr(delta, "type", None)
@@ -432,22 +322,12 @@ async def stream_chat_with_rag(
                         full_text_parts.append(text)
                         yield ("text", text)
 
-                    elif dtype == "citations_delta":
-                        # Citation arrived for the current text block
-                        raw = delta.citation
-                        cit_dict = raw.model_dump() if hasattr(raw, "model_dump") else dict(raw)
-                        enriched = enrich_citation(cit_dict, doc_metadata)
-                        all_citations.append(enriched)
-                        yield ("citation", enriched)
-
                     elif dtype == "input_json_delta":
                         # Tool input being streamed (web_search query, etc.)
                         if current_search_id:
                             current_search_query += delta.partial_json
 
-                # Block stop — finalize tool blocks
                 elif etype == "content_block_stop":
-                    # If a search query just finished streaming, parse + emit it
                     if current_search_id and current_search_query:
                         try:
                             import json
@@ -460,22 +340,17 @@ async def stream_chat_with_rag(
                         current_search_id = None
                         current_search_query = ""
 
-                # The SDK also exposes raw content blocks — pull web_search_tool_result
-                # off the accumulated message after stream ends (handled below).
-
             # Stream complete — fetch the final accumulated message
             final = await stream.get_final_message()
 
             if final.usage:
                 usage = final.usage.model_dump() if hasattr(final.usage, "model_dump") else dict(final.usage)
 
-            # Walk the final content for web_search_tool_result blocks (non-streaming meta)
             for block in final.content:
                 btype = getattr(block, "type", None)
                 if btype == "web_search_tool_result":
                     tool_use_id = getattr(block, "tool_use_id", None)
                     content = getattr(block, "content", None)
-                    # content is either a list of results or an error block
                     if isinstance(content, list):
                         results = []
                         for r in content:
@@ -485,32 +360,19 @@ async def stream_chat_with_rag(
                                     "title":    getattr(r, "title", ""),
                                     "page_age": getattr(r, "page_age", None),
                                 })
-                        # Attach to matching search entry
                         for ws in web_searches:
                             if ws["id"] == tool_use_id:
                                 ws["urls"] = results
                                 break
                         yield ("web_search_result", results)
 
-        # 6. Build sources summary for storage / UI
-        kb_sources = [
-            {
-                "title":         meta["document_title"],
-                "subject":       meta["subject"],
-                "class_level":   meta["class_level"],
-                "document_type": meta["document_type"],
-            }
-            for meta in doc_metadata
-        ]
-
         full_message = "".join(full_text_parts)
 
         yield ("done", {
             "message":       full_message,
-            "citations":     all_citations,
             "web_searches":  web_searches,
             "sources":       kb_sources,
-            "context_found": bool(documents),
+            "context_found": bool(kb_context),
             "usage":         usage,
         })
 
@@ -529,9 +391,8 @@ async def chat_with_rag(
     db: AsyncSession,
     **options: Any,
 ) -> dict:
-    """One-shot chat. Returns full message, citations, sources."""
+    """One-shot chat. Returns full message + sources."""
     full_message = ""
-    citations: list[dict] = []
     web_searches: list[dict] = []
     sources: list[dict] = []
     context_found = False
@@ -539,7 +400,6 @@ async def chat_with_rag(
     async for etype, data in stream_chat_with_rag(user_message, db, **options):
         if etype == "done":
             full_message  = data["message"]
-            citations     = data["citations"]
             web_searches  = data["web_searches"]
             sources       = data["sources"]
             context_found = data["context_found"]
@@ -548,7 +408,6 @@ async def chat_with_rag(
 
     return {
         "message":       full_message,
-        "citations":     citations,
         "web_searches":  web_searches,
         "sources":       sources,
         "context_found": context_found,
@@ -566,7 +425,6 @@ async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
     topics           = params.get("topics", [])
     difficulty       = params.get("difficulty_distribution", {"easy": 30, "medium": 50, "hard": 20})
 
-    # Pull relevant curriculum content
     topic_query = " ".join(topics) if topics else subject
     search_results = await search_knowledge_base(
         topic_query,
@@ -578,7 +436,8 @@ async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
     if not search_results:
         raise ValueError("No content found in knowledge base for the specified subject and class level.")
 
-    documents, doc_metadata = build_citation_documents(search_results)
+    kb_context = build_context(search_results) or ""
+    kb_sources = build_kb_sources(search_results)
     school = get_school()
 
     instructions = f"""Create a complete {paper_type.replace('_', ' ')} examination paper for {school}.
@@ -596,17 +455,16 @@ STRUCTURE (distribute marks appropriately):
 - Section B: Short Answer Questions
 - Section C: Long Answer / Essay Questions
 
-Use the provided curriculum documents as the SOLE source of content. Then call the `submit_question_paper` tool exactly once with the complete paper."""
+Use the curriculum content provided below as the SOLE source. Then call the `submit_question_paper` tool exactly once with the complete paper.
 
-    user_content: list[dict] = list(documents)
-    user_content.append({"type": "text", "text": instructions})
+CURRICULUM CONTENT:
+{kb_context}"""
 
-    # Static system prompt — cacheable so repeated paper generations reuse it.
     paper_system = [{
         "type": "text",
         "text": (
             f"You are an expert examination-paper creator for {school}. "
-            "Build curriculum-aligned papers strictly from the provided documents. "
+            "Build curriculum-aligned papers strictly from the provided content. "
             "Always finish by calling the submit_question_paper tool with the complete structured paper."
         ),
         "cache_control": {"type": "ephemeral"},
@@ -619,12 +477,11 @@ Use the provided curriculum documents as the SOLE source of content. Then call t
         model=get_model(),
         max_tokens=8192,
         system=paper_system,
-        messages=[{"role": "user", "content": user_content}],
+        messages=[{"role": "user", "content": instructions}],
         tools=[paper_tool],
         tool_choice={"type": "tool", "name": "submit_question_paper"},
     )
 
-    # Extract the structured tool input
     paper_data: dict[str, Any] | None = None
     for block in response.content:
         if block.type == "tool_use" and block.name == "submit_question_paper":
@@ -634,7 +491,6 @@ Use the provided curriculum documents as the SOLE source of content. Then call t
     if not paper_data:
         raise ValueError("Claude did not return a structured question paper.")
 
-    # Flatten for storage
     questions: list[dict] = []
     answer_key: list[dict] = []
     for section in paper_data.get("sections", []):
@@ -658,14 +514,14 @@ Use the provided curriculum documents as the SOLE source of content. Then call t
         "paper_data": paper_data,
         "questions":  questions,
         "answer_key": answer_key,
-        "sources":    [m["document_title"] for m in doc_metadata],
+        "sources":    [s["title"] for s in kb_sources],
     }
 
 
 # ─── GENERATE ASSIGNMENT CONTENT ─────────────────────────────────────────────
 
 async def generate_assignment_content(params: dict, db: AsyncSession) -> dict:
-    """Creates assignment text and returns it along with citation metadata."""
+    """Creates assignment text using plain-text curriculum context."""
     topic           = params["topic"]
     subject         = params["subject"]
     class_level     = params["class_level"]
@@ -682,27 +538,28 @@ async def generate_assignment_content(params: dict, db: AsyncSession) -> dict:
     if not search_results:
         raise ValueError("No relevant content found in the knowledge base for this topic.")
 
-    documents, doc_metadata = build_citation_documents(search_results)
+    kb_context = build_context(search_results) or ""
+    kb_sources = build_kb_sources(search_results)
 
     prompt = f"""Create a {assignment_type} assignment for {class_level} students on the topic: "{topic}".
 
-Produce, using ONLY the provided curriculum documents:
+Produce, using ONLY the curriculum content provided below:
 1. A clear assignment title
 2. 3-5 learning objectives
 3. Detailed instructions for the student
 4. {'5 research questions' if assignment_type == 'research' else '5 specific tasks/questions'}
 5. An evaluation rubric
 
-Keep it strictly aligned with the supplied content."""
+Keep it strictly aligned with the supplied content. Do not write bracketed citation markers in your answer.
 
-    user_content: list[dict] = list(documents)
-    user_content.append({"type": "text", "text": prompt})
+CURRICULUM CONTENT:
+{kb_context}"""
 
     assignment_system = [{
         "type": "text",
         "text": (
             f"You are an educational content creator for {school}. "
-            "Build assignments strictly from the provided documents."
+            "Build assignments strictly from the provided content."
         ),
         "cache_control": {"type": "ephemeral"},
     }]
@@ -711,20 +568,15 @@ Keep it strictly aligned with the supplied content."""
         model=get_model(),
         max_tokens=2048,
         system=assignment_system,
-        messages=[{"role": "user", "content": user_content}],
+        messages=[{"role": "user", "content": prompt}],
     )
 
     text = ""
-    citations: list[dict] = []
     for block in response.content:
         if getattr(block, "type", None) == "text":
             text += block.text
-            for c in (getattr(block, "citations", None) or []):
-                cdict = c.model_dump() if hasattr(c, "model_dump") else dict(c)
-                citations.append(enrich_citation(cdict, doc_metadata))
 
     return {
         "content":   text,
-        "citations": citations,
-        "sources":   [m["document_title"] for m in doc_metadata],
+        "sources":   [s["title"] for s in kb_sources],
     }

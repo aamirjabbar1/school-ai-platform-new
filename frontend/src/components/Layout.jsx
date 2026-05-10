@@ -11,9 +11,10 @@ const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
 
 const navConfig = {
   student: [
-    { path: '/student/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-    { path: '/student/chat',      icon: MessageSquare,    label: 'AI Chatbot' },
-    { path: '/student/assignments', icon: BookOpen,       label: 'Assignments' },
+    { path: '/student/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/student/chat',           icon: MessageSquare,   label: 'AI Chatbot' },
+    { path: '/student/assignments',    icon: BookOpen,        label: 'Assignments' },
+    { path: '/student/question-papers', icon: FileText,       label: 'Question Papers' },
   ],
   teacher: [
     { path: '/teacher/dashboard',          icon: LayoutDashboard, label: 'Dashboard' },

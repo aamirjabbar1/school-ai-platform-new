@@ -5,7 +5,7 @@ import { chatAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
   Send, Bot, User, BookOpen, Loader2, Trash2, Plus, X,
-  Brain, AlertTriangle, Globe, Square, ChevronDown, ChevronUp, ExternalLink,
+  Brain, AlertTriangle, Globe, Square,
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -20,91 +20,17 @@ function parseDate(raw) {
   return isNaN(d) ? null : d;
 }
 
-// Normalize sources_used from history rows. Backend now stores it as
-// {kb_sources, citations, web_searches}; older rows may store an array.
+// Normalize sources_used from history rows. Backend stores it as
+// {kb_sources, web_searches}; legacy rows may store a plain array of sources.
 function normalizeSources(raw) {
-  if (!raw) return { kb_sources: [], citations: [], web_searches: [] };
+  if (!raw) return { kb_sources: [], web_searches: [] };
   if (Array.isArray(raw)) {
-    return { kb_sources: raw, citations: [], web_searches: [] };
+    return { kb_sources: raw, web_searches: [] };
   }
   return {
     kb_sources:    raw.kb_sources    || [],
-    citations:     raw.citations     || [],
     web_searches:  raw.web_searches  || [],
   };
-}
-
-// ─── Inline citation badge ────────────────────────────────────────────────────
-function CitationBadge({ citation, index }) {
-  const [open, setOpen] = useState(false);
-  const isWeb = citation.type === 'web_search_result_location';
-
-  // Build display label
-  let label;
-  if (isWeb) {
-    try {
-      label = new URL(citation.url).hostname.replace('www.', '');
-    } catch {
-      label = citation.title || 'web';
-    }
-  } else {
-    label = citation.document_title || 'source';
-  }
-
-  const headerClass = isWeb
-    ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
-    : 'bg-blue-50 text-blue-700 border-blue-100 hover:bg-blue-100';
-
-  return (
-    <div className="inline-flex flex-col">
-      <button
-        onClick={() => setOpen(!open)}
-        className={`text-xs px-2 py-0.5 rounded-full border transition-colors flex items-center gap-1 ${headerClass}`}
-        title={citation.cited_text}
-      >
-        {isWeb && <Globe size={10} />}
-        <span className="font-medium">[{index + 1}]</span>
-        <span className="truncate max-w-[140px]">{label}</span>
-        {open ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-      </button>
-
-      {open && (
-        <div className="mt-1 p-2 bg-white border border-gray-200 rounded-lg shadow-sm text-xs max-w-md">
-          {isWeb ? (
-            <>
-              <div className="font-semibold text-gray-800 mb-1">{citation.title}</div>
-              <a
-                href={citation.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-600 hover:underline flex items-center gap-1 mb-1.5 text-[11px] break-all"
-              >
-                {citation.url} <ExternalLink size={10} />
-              </a>
-            </>
-          ) : (
-            <>
-              <div className="font-semibold text-gray-800 mb-1">
-                {citation.document_title}
-              </div>
-              <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-gray-500 mb-1.5">
-                {citation.subject && <span>{citation.subject}</span>}
-                {citation.class_level && <span>· {citation.class_level}</span>}
-                {citation.document_type && <span>· {citation.document_type}</span>}
-                {citation.chapter_number > 0 && (
-                  <span>· Ch. {citation.chapter_number}{citation.chapter_title ? `: ${citation.chapter_title}` : ''}</span>
-                )}
-                {citation.page_number > 0 && <span>· p. {citation.page_number}</span>}
-              </div>
-            </>
-          )}
-          <blockquote className="text-gray-600 italic border-l-2 border-gray-200 pl-2 leading-snug">
-            "{citation.cited_text}"
-          </blockquote>
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ─── Web search activity ──────────────────────────────────────────────────────
@@ -176,7 +102,6 @@ export default function ChatInterface({ role = 'student' }) {
           role: h.role,
           content: h.content,
           kb_sources:    src.kb_sources,
-          citations:     src.citations,
           web_searches:  src.web_searches,
         };
       }));
@@ -213,7 +138,6 @@ export default function ChatInterface({ role = 'student' }) {
       id: assistantMsgId,
       role: 'assistant',
       content: '',
-      citations: [],
       web_searches: [],
       kb_sources: [],
       streaming: true,
@@ -264,14 +188,6 @@ export default function ChatInterface({ role = 'student' }) {
             ));
             break;
 
-          case 'citation':
-            setMessages((prev) => prev.map((m) =>
-              m.id === assistantMsgId
-                ? { ...m, citations: [...(m.citations || []), data.citation] }
-                : m
-            ));
-            break;
-
           case 'web_search_query':
             setMessages((prev) => prev.map((m) =>
               m.id === assistantMsgId
@@ -311,7 +227,6 @@ export default function ChatInterface({ role = 'student' }) {
                 ? {
                     ...m,
                     content:       data.message || m.content,
-                    citations:     data.citations    || m.citations,
                     web_searches:  data.web_searches || m.web_searches,
                     kb_sources:    data.sources      || [],
                     streaming:     false,
@@ -494,9 +409,7 @@ export default function ChatInterface({ role = 'student' }) {
                 )}
               </div>
               <p className="text-xs text-gray-500">
-                {memoryCount > 0
-                  ? 'Cited answers from school books, with web search when needed'
-                  : 'Cited answers from school books, with web search when needed'}
+                Answers grounded in your school books, with web search when needed
               </p>
             </div>
           </div>
@@ -524,7 +437,7 @@ export default function ChatInterface({ role = 'student' }) {
               </div>
               <h3 className="font-semibold text-gray-800 mb-1">AI Academic Assistant</h3>
               <p className="text-sm text-gray-500 max-w-xs">
-                Ask anything from your subjects. Answers are grounded in your school's curriculum, with citations from chapters &amp; pages.
+                Ask anything from your subjects. Answers are grounded in your school's curriculum.
               </p>
               {memoryCount > 0 && (
                 <p className="text-xs text-purple-600 mt-2 flex items-center gap-1">
@@ -585,14 +498,6 @@ export default function ChatInterface({ role = 'student' }) {
                   )}
                 </div>
 
-                {/* Citations (per-source citations from API) */}
-                {msg.role === 'assistant' && msg.citations?.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {msg.citations.map((c, i) => (
-                      <CitationBadge key={i} citation={c} index={i} />
-                    ))}
-                  </div>
-                )}
               </div>
             </div>
           ))}
@@ -631,7 +536,7 @@ export default function ChatInterface({ role = 'student' }) {
             )}
           </form>
           <p className="text-xs text-gray-400 mt-1.5 text-center">
-            Answers cite school curriculum. Web search used only when needed.
+            Answers come from your school curriculum. Web search used only when needed.
           </p>
         </div>
       </div>

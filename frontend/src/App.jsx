@@ -6,6 +6,7 @@ import Login from './pages/Login';
 import StudentDashboard from './pages/student/Dashboard';
 import StudentChat from './pages/student/Chat';
 import StudentAssignments from './pages/student/Assignments';
+import StudentQuestionPapers from './pages/student/QuestionPapers';
 import TeacherDashboard from './pages/teacher/Dashboard';
 import TeacherChat from './pages/teacher/Chat';
 import CreateAssignment from './pages/teacher/CreateAssignment';
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="/student/dashboard" element={<ProtectedRoute allowedRoles={['student']}><StudentDashboard /></ProtectedRoute>} />
           <Route path="/student/chat" element={<ProtectedRoute allowedRoles={['student']}><StudentChat /></ProtectedRoute>} />
           <Route path="/student/assignments" element={<ProtectedRoute allowedRoles={['student']}><StudentAssignments /></ProtectedRoute>} />
+          <Route path="/student/question-papers" element={<ProtectedRoute allowedRoles={['student']}><StudentQuestionPapers /></ProtectedRoute>} />
 
           {/* Teacher Routes */}
           <Route path="/teacher/dashboard" element={<ProtectedRoute allowedRoles={['teacher']}><TeacherDashboard /></ProtectedRoute>} />

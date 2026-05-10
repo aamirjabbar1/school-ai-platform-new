@@ -1,18 +1,20 @@
 """
-Document ingestion pipeline:
+Document ingestion pipeline (Claude-only extraction, vision-aware):
+
   1. Download file bytes from MinIO
-  2. Extract text via Claude Sonnet 4.6 (PDF: 50 pages/chunk, DOCX: 3000 words/batch)
-  3. Split into 400-word chunks with 50-word overlap; extract chapter/page per chunk
+  2. Extract text + figure descriptions via Claude Sonnet 4.6
+       PDF:  8 pages/chunk, max_tokens=16384, vision-enabled prompt
+       DOCX: 3000 words/batch, structuring pass
+  3. Structure-aware chunking that respects pages/chapters/tables/figures
   4. Generate embeddings via OpenAI text-embedding-3-large
-  5. Insert chunk records into PostgreSQL (metadata + text)
-  6. Insert vectors into Milvus (all metadata fields + embedding)
-  7. Update Document.is_ingested = True in PostgreSQL
+  5. Insert chunks into PostgreSQL (metadata + text)
+  6. Insert vectors into Milvus (all metadata + embedding)
+  7. Mark Document.is_ingested = True
 
 RAG search:
   1. Embed the query (OpenAI)
-  2. ANN search in Milvus with optional filters:
-     subject, class_level, document_type, language, academic_year, term
-  3. Return structured results with full citation info
+  2. ANN search in Milvus with optional filters
+  3. Return chunks with structured context (no Anthropic Citations API)
 """
 import asyncio
 import base64
@@ -29,45 +31,66 @@ from services import storage_service, embedding_service, vector_service
 
 
 _CLAUDE_MODEL = "claude-sonnet-4-6"
-_PDF_PAGES_PER_CHUNK = 50
+
+# Smaller PDF slices so the model can output every word verbatim within
+# max_tokens. 8 pages × ~500 words = ~4000 words ≈ 6k output tokens; figures
+# and tables push this higher, so we leave plenty of headroom.
+_PDF_PAGES_PER_CHUNK = 8
+_PDF_MAX_TOKENS = 16384
+
 _DOCX_WORDS_PER_BATCH = 3000
+_DOCX_MAX_TOKENS = 8192
 
 # Org limit is 30k input tokens/min on Sonnet 4.6.
-# A 50-page chunk can be 10–25k tokens, so concurrent calls burst past the limit.
-# Keep calls sequential (1 at a time) and add a gap between them.
-# The SDK retries on 429 with exponential backoff when max_retries > 0.
-_MAX_CONCURRENT_CLAUDE_CALLS = 1
-_INTER_CHUNK_DELAY_SECS = 2
+# Sequential calls (1 at a time) with a short gap stay under the limit.
+_INTER_CHUNK_DELAY_SECS = 1
 
+
+# Vision-aware extraction prompt: reproduces every word, transcribes equations
+# in LaTeX, describes every figure inline, and emits [Page N] markers so the
+# downstream chunker can attach real page numbers.
 _EXTRACTION_PROMPT = (
-    "Extract all text from this PDF exactly as written. "
-    "Preserve headings, subheadings, paragraph breaks, bullet points, "
-    "numbered lists, and tables (format tables as markdown). "
-    "Mark chapter headings with a single # prefix and section headings with ##. "
-    "Include page numbers where visible. Output plain structured text only, no commentary."
+    "Extract ALL content from this PDF exactly as written. Do not skip, summarize, "
+    "shorten, or paraphrase anything. Reproduce every sentence, every list item, "
+    "every caption, every footnote, every header, and every footer.\n\n"
+    "FORMATTING RULES:\n"
+    "- At the start of each PDF page, put a marker on its own line: [Page N] "
+    "(use the page number printed on the page; if none is visible, use the "
+    "sequential index starting from 1).\n"
+    "- Mark the start of a chapter with a single '#' heading, e.g. '# Chapter 3: Photosynthesis'.\n"
+    "- Mark sections with '##' and subsections with '###'. Headings sit on their own line.\n"
+    "- Preserve paragraph breaks as a blank line.\n"
+    "- Reproduce numbered and bulleted lists item-by-item.\n"
+    "- Reproduce tables as full GitHub-flavoured markdown tables with every cell, "
+    "every row, every column, and the header separator row. Never abbreviate, "
+    "summarise, or skip any cell.\n"
+    "- Transcribe mathematical equations and formulas in LaTeX: inline as $...$, "
+    "display as $$...$$. Preserve subscripts, superscripts, fractions, integrals.\n"
+    "- For each figure, image, diagram, chart, illustration, photograph, map, "
+    "or scientific schematic, insert at the position where it appears in the page:\n"
+    "    [FIGURE: <2-4 sentence description>] \n"
+    "  The description must be concrete and searchable: name what is shown, "
+    "any visible labels, axes, units, key data values, and any equations or "
+    "annotations. Include the figure number/caption verbatim if present.\n"
+    "- Output plain structured text only. No introductions, no commentary, "
+    "no 'here is the extracted text', no closing remarks."
 )
 
 _STRUCTURING_PROMPT = (
     "Clean and structure the following extracted document content. "
     "Preserve all text exactly, fix any spacing or formatting artifacts, "
-    "maintain document hierarchy (headings with #, subheadings with ##, body), "
-    "and format tables as markdown. Output clean structured text only.\n\n"
+    "maintain document hierarchy (# for chapters, ## for sections, ### for subsections), "
+    "format tables as full markdown tables, and keep equations in LaTeX. "
+    "Output clean structured text only.\n\n"
 )
 
 
 # ─── CLAUDE-BASED TEXT EXTRACTION ─────────────────────────────────────────────
 
 async def _extract_pdf_claude(data: bytes) -> str:
-    """Split PDF into 50-page chunks, extract text sequentially via Claude Sonnet.
-
-    Chunks are processed one at a time with a short delay between calls to stay
-    within the org's token-per-minute rate limit. The client is configured with
-    max_retries=5 so the SDK's exponential-backoff logic handles any residual
-    429s without crashing the task.
-    """
+    """Split PDF into 8-page chunks, extract text + figure descriptions sequentially."""
     from pypdf import PdfReader, PdfWriter
 
-    # max_retries enables the SDK's built-in exponential backoff on 429/529.
     client = anthropic.AsyncAnthropic(max_retries=5)
     reader = PdfReader(io.BytesIO(data))
     total_pages = len(reader.pages)
@@ -86,9 +109,16 @@ async def _extract_pdf_claude(data: bytes) -> str:
         writer.write(chunk_buf)
         pdf_b64 = base64.standard_b64encode(chunk_buf.getvalue()).decode()
 
+        # Hint Claude with the absolute page numbers in the original PDF so
+        # the [Page N] markers it emits match real page numbers.
+        offset_hint = (
+            f"\n\nThis PDF slice covers pages {start + 1} through {end} of the "
+            f"original document. Use those page numbers in [Page N] markers."
+        )
+
         response = await client.messages.create(
             model=_CLAUDE_MODEL,
-            max_tokens=8192,
+            max_tokens=_PDF_MAX_TOKENS,
             messages=[{
                 "role": "user",
                 "content": [
@@ -100,14 +130,12 @@ async def _extract_pdf_claude(data: bytes) -> str:
                             "data": pdf_b64,
                         },
                     },
-                    {"type": "text", "text": _EXTRACTION_PROMPT},
+                    {"type": "text", "text": _EXTRACTION_PROMPT + offset_hint},
                 ],
             }],
         )
         results.append(response.content[0].text)
 
-        # Pause between chunks (not after the last one) to spread token usage
-        # across the rate-limit window and avoid 429s on back-to-back calls.
         if i < len(chunk_starts) - 1:
             await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
 
@@ -162,7 +190,7 @@ async def _extract_docx_claude(data: bytes) -> str:
     for i, raw_text in enumerate(batches):
         response = await client.messages.create(
             model=_CLAUDE_MODEL,
-            max_tokens=8192,
+            max_tokens=_DOCX_MAX_TOKENS,
             messages=[{
                 "role": "user",
                 "content": _STRUCTURING_PROMPT + raw_text,
@@ -210,75 +238,191 @@ async def extract_text_from_bytes(data: bytes, file_type: str) -> str:
     raise ValueError(f"Unsupported file type: {file_type}")
 
 
-# ─── TEXT CHUNKING WITH CHAPTER EXTRACTION ───────────────────────────────────
+# ─── STRUCTURE-AWARE CHUNKING ────────────────────────────────────────────────
+#
+# Goals:
+#   - Real page numbers (parsed from [Page N] markers Claude emits)
+#   - Chapter/section context preserved (running counter)
+#   - Tables and [FIGURE: ...] blocks are NEVER split across chunks
+#   - Greedy paragraph packing up to a target word count, with overlap
+#   - Hard char cap so we never exceed Milvus's chunk_text capacity
+CHUNK_TARGET_WORDS = 600
+CHUNK_OVERLAP_WORDS = 100
+CHUNK_MIN_WORDS = 30
+# Milvus chunk_text capacity is 16000; leave headroom for safety.
+CHUNK_MAX_CHARS = 15000
 
-CHUNK_SIZE = 400
-CHUNK_OVERLAP = 50
-_WORDS_PER_PAGE = 275  # average for a textbook page
+_PAGE_RE = re.compile(r'\[Page\s+(\d+)\]', re.IGNORECASE)
 
 
-def _build_chapter_map(text: str) -> list[tuple[int, int, str]]:
-    """
-    Scan multi-line text for top-level headings (# but not ##).
-    Returns sorted list of (word_offset, chapter_number, chapter_title).
-    word_offset is the cumulative word count before that heading line.
-    """
-    breakpoints: list[tuple[int, int, str]] = [(0, 0, "")]
-    chapter_num = 0
-    word_offset = 0
+def _segment_by_page(text: str) -> list[tuple[int, str]]:
+    """Split text by [Page N] markers; returns [(page_num, content), ...]."""
+    matches = list(_PAGE_RE.finditer(text))
+    if not matches:
+        return [(1, text)] if text.strip() else []
 
-    for line in text.split("\n"):
+    pages: list[tuple[int, str]] = []
+    pre = text[:matches[0].start()].strip()
+    if pre:
+        pages.append((1, pre))
+
+    for i, m in enumerate(matches):
+        try:
+            page_num = int(m.group(1))
+        except ValueError:
+            page_num = i + 1
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        content = text[start:end].strip()
+        if content:
+            pages.append((page_num, content))
+    return pages
+
+
+def _split_into_units(text: str) -> list[str]:
+    """Break a page into atomic units: paragraphs, headings, list blocks,
+    markdown tables, and [FIGURE: ...] blocks. Tables and figures stay intact."""
+    units: list[str] = []
+    lines = text.split("\n")
+    buffer: list[str] = []
+    in_table = False
+
+    def flush():
+        if buffer:
+            joined = "\n".join(buffer).strip()
+            if joined:
+                units.append(joined)
+            buffer.clear()
+
+    for line in lines:
         stripped = line.strip()
-        if re.match(r"^# (?!#)", stripped):
-            title = stripped[2:].strip()
-            chapter_num += 1
-            breakpoints.append((word_offset, chapter_num, title))
-        word_offset += len(stripped.split()) if stripped else 0
+        is_table_line = stripped.startswith("|")
+        is_blank = not stripped
 
-    return breakpoints
+        if in_table:
+            if is_table_line or stripped.startswith(":---") or re.match(r"^[-:|\s]+$", stripped):
+                buffer.append(line)
+                continue
+            # Table just ended
+            flush()
+            in_table = False
+            if is_blank:
+                continue
+            buffer.append(line)
+            continue
+
+        if is_table_line:
+            flush()
+            in_table = True
+            buffer.append(line)
+            continue
+
+        if is_blank:
+            flush()
+            continue
+
+        buffer.append(line)
+
+    flush()
+    return units
 
 
-def _chapter_at(breakpoints: list[tuple[int, int, str]], word_pos: int) -> tuple[int, str]:
-    chapter_num, chapter_title = 0, ""
-    for offset, num, title in breakpoints:
-        if offset <= word_pos:
-            chapter_num, chapter_title = num, title
-        else:
-            break
-    return chapter_num, chapter_title
+def _compute_chapter_map(units: list[str]) -> list[tuple[int, str]]:
+    """For each unit, return (chapter_number, chapter_title) currently in scope."""
+    out: list[tuple[int, str]] = []
+    cur_num, cur_title = 0, ""
+    for unit in units:
+        first_line = unit.split("\n", 1)[0].strip()
+        if re.match(r"^#\s+(?!#)", first_line):
+            cur_num += 1
+            cur_title = first_line[2:].strip()[:300]
+        out.append((cur_num, cur_title))
+    return out
 
 
 def chunk_text(raw_text: str) -> list[dict]:
-    # Normalise line endings, collapse excess blank lines
-    cleaned = re.sub(r"\r\n", "\n", raw_text)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    """Structure-aware chunker. Preserves tables, figures, real page numbers,
+    and chapter context across chunks."""
+    cleaned = re.sub(r'\r\n', '\n', raw_text)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
 
-    # Build chapter map before flattening whitespace
-    chapter_map = _build_chapter_map(cleaned)
-
-    # Flatten to a single word stream
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if not cleaned:
+    pages = _segment_by_page(cleaned)
+    if not pages:
         return []
 
-    words = cleaned.split()
+    # Flatten into a unit stream that remembers each unit's page number
+    units: list[str] = []
+    unit_pages: list[int] = []
+    for page_num, page_text in pages:
+        for u in _split_into_units(page_text):
+            units.append(u)
+            unit_pages.append(page_num)
+
+    if not units:
+        return []
+
+    chapter_map = _compute_chapter_map(units)
+
     chunks: list[dict] = []
     i = 0
-    while i < len(words):
-        end = min(i + CHUNK_SIZE, len(words))
-        chunk = " ".join(words[i:end])
-        if len(chunk.strip()) > 50:
-            chapter_num, chapter_title = _chapter_at(chapter_map, i)
-            page_num = max(1, round(i / _WORDS_PER_PAGE) + 1)
+    while i < len(units):
+        cur_parts: list[str] = []
+        cur_words = 0
+        cur_chars = 0
+        first_page = unit_pages[i]
+        j = i
+
+        while j < len(units):
+            unit = units[j]
+            unit_words = len(unit.split())
+            unit_chars = len(unit) + 2  # join separator approx
+
+            # Stop adding if this unit would overflow AND we already have content
+            if cur_parts and (
+                cur_words + unit_words > CHUNK_TARGET_WORDS
+                or cur_chars + unit_chars > CHUNK_MAX_CHARS
+            ):
+                break
+
+            cur_parts.append(unit)
+            cur_words += unit_words
+            cur_chars += unit_chars
+            j += 1
+
+            # Once we hit the target, close the chunk. A single oversized
+            # unit (giant table / figure block) is accepted whole to avoid
+            # splitting it.
+            if cur_words >= CHUNK_TARGET_WORDS or cur_chars >= CHUNK_MAX_CHARS:
+                break
+
+        chunk_body = "\n\n".join(cur_parts).strip()
+        if len(chunk_body) > CHUNK_MAX_CHARS:
+            chunk_body = chunk_body[:CHUNK_MAX_CHARS]
+
+        if cur_words >= CHUNK_MIN_WORDS:
+            chapter_num, chapter_title = chapter_map[i]
             chunks.append({
-                "text":           chunk.strip(),
-                "word_count":     end - i,
+                "text":           chunk_body,
+                "word_count":     cur_words,
                 "index":          len(chunks),
                 "chapter_number": chapter_num,
-                "chapter_title":  chapter_title[:300],
-                "page_number":    page_num,
+                "chapter_title":  chapter_title,
+                "page_number":    first_page,
             })
-        i += CHUNK_SIZE - CHUNK_OVERLAP
+
+        if j == i:
+            j = i + 1
+        if j >= len(units):
+            break
+
+        # Rewind for overlap: walk back until we accumulate ~CHUNK_OVERLAP_WORDS
+        overlap = 0
+        k = j - 1
+        while k > i and overlap < CHUNK_OVERLAP_WORDS:
+            overlap += len(units[k].split())
+            k -= 1
+        i = max(k, i + 1)
+
     return chunks
 
 
@@ -299,7 +443,7 @@ async def ingest_document(document_id: str, db: AsyncSession) -> dict:
         if not raw_text or len(raw_text.strip()) < 50:
             raise ValueError("Could not extract meaningful text from document")
 
-        # 3. Chunk (with chapter + page metadata)
+        # 3. Chunk (structure-aware: pages, chapters, tables, figures)
         chunks = chunk_text(raw_text)
         if not chunks:
             raise ValueError("No valid text chunks could be created")
@@ -342,7 +486,7 @@ async def ingest_document(document_id: str, db: AsyncSession) -> dict:
                 "chapter_number": chunk["chapter_number"],
                 "chapter_title":  chunk["chapter_title"][:300],
                 "page_number":    chunk["page_number"],
-                "chunk_text":     chunk["text"][:8000],
+                "chunk_text":     chunk["text"][:CHUNK_MAX_CHARS],
                 "embedding":      emb,
             }
             for pg_c, chunk, emb in zip(pg_chunks, chunks, embeddings)
@@ -375,6 +519,141 @@ async def ingest_document(document_id: str, db: AsyncSession) -> dict:
 
 
 # ─── KNOWLEDGE BASE SEARCH ────────────────────────────────────────────────────
+#
+# Hybrid retrieval pipeline:
+#   1. Classify the query (point / conceptual / exhaustive / filtered)
+#   2. Detect document/subject/class via the cached document index
+#   3. Route:
+#        exhaustive  → full-document retrieval (all chunks, in order)
+#        point       → single hybrid search (vector + BM25 fusion)
+#        conceptual /
+#        filtered    → multi-query hybrid search (parallel, dedupe by best score)
+#   4. Fuse vector + BM25 scores with weights 0.6 / 0.4
+#   5. Fallback ladder if filtered search returns nothing.
+
+# Hybrid fusion weights — vector dominates because curriculum queries are
+# mostly conceptual; BM25 still boosts exact-keyword matches (formulas,
+# article numbers, named theorems, specific Urdu/English terms).
+_VECTOR_WEIGHT = 0.6
+_BM25_WEIGHT   = 0.4
+_VECTOR_CANDIDATES = 60
+_BM25_CANDIDATES   = 60
+_FUSION_TOP_K      = 40
+_EXHAUSTIVE_MAX    = 200
+
+
+async def _hybrid_search(
+    query: str,
+    subject: str | None = None,
+    class_level: str | None = None,
+    document_type: str | None = None,
+    language: str | None = None,
+    academic_year: str | None = None,
+    term: str | None = None,
+    document_title: str | None = None,
+    top_k: int = _FUSION_TOP_K,
+) -> list[dict]:
+    """Run vector + BM25 in parallel and fuse with weighted normalised scores."""
+    from services import bm25_service
+
+    query_embedding = await asyncio.to_thread(embedding_service.embed_query, query)
+
+    # Build a document_title-aware Milvus filter for vector search by routing
+    # through the existing search_chunks (it already supports the other filters).
+    # We don't have a `document_title` parameter on search_chunks, so when the
+    # classifier detected a document title we still feed it as filter via
+    # scalar pre-filtering at the BM25 layer + filter the vector results
+    # client-side.
+    vector_task = asyncio.to_thread(
+        vector_service.search_chunks,
+        query_embedding,
+        subject, class_level, document_type, language, academic_year, term,
+        _VECTOR_CANDIDATES,
+    )
+    bm25_task = asyncio.to_thread(
+        bm25_service.get_retriever().search,
+        query, _BM25_CANDIDATES,
+        subject, class_level, document_type, language,
+        academic_year, term, document_title,
+    )
+
+    vector_hits, bm25_hits = await asyncio.gather(
+        vector_task, bm25_task, return_exceptions=True
+    )
+    if isinstance(vector_hits, Exception):
+        print(f"[_hybrid_search] vector error: {vector_hits}")
+        vector_hits = []
+    if isinstance(bm25_hits, Exception):
+        print(f"[_hybrid_search] bm25 error: {bm25_hits}")
+        bm25_hits = []
+
+    # Client-side filter on document_title (vector path doesn't support it).
+    if document_title:
+        vector_hits = [
+            r for r in vector_hits if r.get("document_title") == document_title
+        ]
+
+    # ── Score fusion ─────────────────────────────────────────────────────────
+    # Vector hits are ranked → assign rank-based normalised score [1.0 → 1/N]
+    # BM25 hits arrive with their already-normalised score in r["score"]
+    pool: dict[str, dict] = {}
+    n_vec = len(vector_hits) or 1
+    for rank, r in enumerate(vector_hits):
+        cid = r.get("chunk_id")
+        if not cid:
+            continue
+        rec = dict(r)
+        rec["_vec_norm"] = 1.0 - (rank / n_vec)
+        rec["_bm25_norm"] = 0.0
+        pool[cid] = rec
+
+    for r in bm25_hits:
+        cid = r.get("chunk_id")
+        if not cid:
+            continue
+        bm25_score = float(r.get("score", 0.0))
+        if cid in pool:
+            pool[cid]["_bm25_norm"] = bm25_score
+        else:
+            rec = dict(r)
+            rec["_vec_norm"] = 0.0
+            rec["_bm25_norm"] = bm25_score
+            pool[cid] = rec
+
+    for r in pool.values():
+        r["score"] = (
+            _VECTOR_WEIGHT * r.pop("_vec_norm")
+            + _BM25_WEIGHT * r.pop("_bm25_norm")
+        )
+
+    return sorted(pool.values(), key=lambda x: -x["score"])[:top_k]
+
+
+async def _multi_query_hybrid(
+    queries: list[str],
+    **filters,
+) -> list[dict]:
+    """Run several hybrid searches in parallel and merge keeping the best score per chunk."""
+    if not queries:
+        return []
+
+    tasks = [_hybrid_search(q, **filters) for q in queries]
+    all_hits = await asyncio.gather(*tasks, return_exceptions=True)
+
+    merged: dict[str, dict] = {}
+    for hits in all_hits:
+        if isinstance(hits, Exception):
+            print(f"[_multi_query_hybrid] sub-query failed: {hits}")
+            continue
+        for r in hits:
+            cid = r.get("chunk_id")
+            if not cid:
+                continue
+            if cid not in merged or r["score"] > merged[cid]["score"]:
+                merged[cid] = r
+
+    return sorted(merged.values(), key=lambda x: -x["score"])
+
 
 async def search_knowledge_base(
     query: str,
@@ -387,54 +666,114 @@ async def search_knowledge_base(
     limit: int = 8,
 ) -> list[dict]:
     """
-    Semantic search with progressive filter fallback.
+    Hybrid retrieval pipeline (vector + BM25 + classifier-driven routing).
 
-    Tries filters from most-specific to least-specific so that a student asking
-    about Chemistry still gets an answer when only a Computer Science book is
-    loaded — rather than silently returning nothing.
-
-    Fallback ladder:
-      1. All supplied filters (exact match)
-      2. Drop subject  (same class, any subject)
-      3. Drop class    (any subject, any class)
-      4. No filters    (entire knowledge base)
+    Routes the query to the best retrieval strategy based on classification, then
+    falls back across less-restrictive filters so the user always gets something
+    when their question doesn't perfectly match the available corpus.
     """
+    from services.query_classifier import classify_query
+
     try:
-        query_embedding = await asyncio.to_thread(embedding_service.embed_query, query)
+        cls = await classify_query(
+            query,
+            subject_hint=subject,
+            class_hint=class_level,
+        )
+        qtype       = cls["type"]
+        doc_title   = cls["document_title"]
+        sub_queries = cls["sub_queries"] or []
 
-        filter_ladder = [
-            # (subject,  class_level,  document_type, language, academic_year, term)
-            (subject,   class_level,  document_type, language, academic_year, term),
-            (None,      class_level,  document_type, language, academic_year, term),
-            (None,      None,         document_type, language, None,          None),
-            (None,      None,         None,          None,     None,          None),
-        ]
+        # Auto-fill filters that were not explicitly passed in
+        eff_subject = subject or cls["subject"]
+        eff_class   = class_level or cls["class_level"]
+        eff_chapter = cls.get("chapter_title")
 
-        for (s, cl, dt, lang, ay, t) in filter_ladder:
+        print(
+            f"[search_knowledge_base] type={qtype} doc='{doc_title}' "
+            f"subject='{eff_subject}' class='{eff_class}' "
+            f"sub_queries={len(sub_queries)} reason='{cls['reason']}'"
+        )
+
+        # ── Route 1: exhaustive (full document) ──────────────────────────────
+        if qtype == "exhaustive" and doc_title:
             results = await asyncio.to_thread(
-                vector_service.search_chunks,
-                query_embedding,
-                s, cl, dt, lang, ay, t,
-                limit,
+                vector_service.query_all_chunks_for_document,
+                doc_title,
+                eff_subject,
+                eff_class,
+                language,
+                eff_chapter,
+                _EXHAUSTIVE_MAX,
             )
             if results:
-                return results
+                return results[:_EXHAUSTIVE_MAX]
+            # if nothing, fall through to hybrid
 
-        return []
+        # ── Route 2/3: hybrid (with optional multi-query expansion) ──────────
+        filters = {
+            "subject":        eff_subject,
+            "class_level":    eff_class,
+            "document_type":  document_type,
+            "language":       language,
+            "academic_year":  academic_year,
+            "term":           term,
+            "document_title": doc_title,
+        }
+
+        if qtype in ("conceptual", "filtered") and sub_queries:
+            queries = [query] + sub_queries
+            hits = await _multi_query_hybrid(queries, **filters)
+        else:
+            hits = await _hybrid_search(query, **filters)
+
+        if hits:
+            return hits[:limit]
+
+        # ── Fallback ladder: progressively drop filters ──────────────────────
+        # Only one fallback at a time to avoid blowing past the K limit on
+        # a noisy corpus. Drop document_title first (most specific), then
+        # subject, then class, then everything.
+        if doc_title:
+            hits = await _hybrid_search(
+                query, subject=eff_subject, class_level=eff_class,
+                document_type=document_type, language=language,
+            )
+            if hits:
+                return hits[:limit]
+        if eff_subject:
+            hits = await _hybrid_search(
+                query, class_level=eff_class,
+                document_type=document_type, language=language,
+            )
+            if hits:
+                return hits[:limit]
+        if eff_class:
+            hits = await _hybrid_search(
+                query, document_type=document_type, language=language,
+            )
+            if hits:
+                return hits[:limit]
+
+        # Last resort: full corpus
+        return (await _hybrid_search(query))[:limit]
 
     except Exception as exc:
         print(f"[search_knowledge_base] error: {exc}")
+        import traceback
+        traceback.print_exc()
         return []
 
 
 # ─── BUILD CONTEXT STRING FOR PROMPTS ────────────────────────────────────────
 
 def build_context(search_results: list[dict]) -> str | None:
+    """Plain-text RAG context. No Anthropic Citations API; the AI may still
+    refer to a chapter/page naturally in prose."""
     if not search_results:
         return None
     parts = []
     for i, r in enumerate(search_results):
-        # Build a rich citation header
         location_parts = []
         if r.get("chapter_number") and r["chapter_number"] > 0:
             ch = f"Chapter {r['chapter_number']}"

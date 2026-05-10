@@ -54,7 +54,7 @@ async def get_dashboard(
                 COUNT(CASE WHEN role = 'student' THEN 1 END) as students,
                 COUNT(CASE WHEN role = 'teacher' THEN 1 END) as teachers,
                 COUNT(CASE WHEN role = 'admin' THEN 1 END) as admins,
-                COUNT(CASE WHEN is_active = 0 THEN 1 END) as inactive_users
+                COUNT(CASE WHEN is_active = false THEN 1 END) as inactive_users
             FROM users
         """)
         result = await db.execute(user_stats_sql)
@@ -63,9 +63,9 @@ async def get_dashboard(
         content_stats_sql = text("""
             SELECT
                 (SELECT COUNT(*) FROM documents) as total_documents,
-                (SELECT COUNT(*) FROM documents WHERE is_ingested = 1) as ingested_docs,
+                (SELECT COUNT(*) FROM documents WHERE is_ingested = true) as ingested_docs,
                 (SELECT COUNT(*) FROM document_chunks) as total_chunks,
-                (SELECT COUNT(*) FROM assignments WHERE is_active = 1) as active_assignments,
+                (SELECT COUNT(*) FROM assignments WHERE is_active = true) as active_assignments,
                 (SELECT COUNT(*) FROM submissions WHERE status = 'submitted') as pending_submissions,
                 (SELECT COUNT(*) FROM question_papers) as question_papers
         """)

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +8,7 @@ from config.database import get_db
 from middleware.auth import get_current_user, require_roles
 from models.models import User, QuestionPaper
 from services.ai_service import generate_question_paper
+from services.pdf_service import build_question_paper_pdf
 
 router = APIRouter(prefix="/question-papers", tags=["question-papers"])
 
@@ -75,9 +77,48 @@ async def get_question_paper(
     if user.role == "student":
         if not paper.is_published:
             raise HTTPException(status_code=403, detail="Paper not published yet")
+        if paper.class_name != user.class_name:
+            raise HTTPException(status_code=403, detail="This paper is not for your class")
         return paper.to_dict(hide_answers=True)
 
     return paper.to_dict()
+
+
+@router.get("/{paper_id}/pdf")
+async def download_question_paper_pdf(
+    paper_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Render the paper as a printable PDF.
+
+    Teachers/admins get the answer key appended; students get the questions
+    only (and only if the paper is published for their class).
+    """
+    result = await db.execute(select(QuestionPaper).where(QuestionPaper.id == paper_id))
+    paper = result.scalar_one_or_none()
+    if not paper:
+        raise HTTPException(status_code=404, detail="Question paper not found")
+
+    include_answers = user.role in ("teacher", "admin")
+
+    if user.role == "student":
+        if not paper.is_published:
+            raise HTTPException(status_code=403, detail="Paper not published yet")
+        if paper.class_name != user.class_name:
+            raise HTTPException(status_code=403, detail="This paper is not for your class")
+
+    paper_dict = paper.to_dict()
+    pdf_bytes = build_question_paper_pdf(paper_dict, include_answers=include_answers)
+
+    safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in (paper.title or "paper"))
+    filename = f"{safe_title}.pdf"
+
+    return StreamingResponse(
+        iter([pdf_bytes]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/generate")
