@@ -75,6 +75,21 @@ def _get_gemini_client() -> "genai.Client":
     return _gemini_client
 
 
+def reset_gemini_client() -> None:
+    """Drop the cached Gemini client so the next call rebuilds one bound to the
+    current event loop.
+
+    Celery runs each task inside a new loop via `asyncio.run()`. The Gemini SDK's
+    async client owns an httpx connection pool tied to the loop it was created on;
+    reusing it on a later task (a different loop) raises "Event loop is closed"
+    when httpcore tries to recycle a stale connection. We simply drop the
+    reference — the abandoned client belongs to a loop that no longer exists, so
+    we must NOT try to close it here (that would hit the same dead loop).
+    """
+    global _gemini_client
+    _gemini_client = None
+
+
 # Vision-aware extraction prompt: reproduces every word, transcribes equations
 # in LaTeX, describes every figure inline, and emits [Page N] markers so the
 # downstream chunker can attach real page numbers.

@@ -43,7 +43,13 @@ async def _run_ingestion(document_id: str):
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
     from config.settings import DATABASE_URL, MILVUS_HOST, MILVUS_PORT
     from services import vector_service
-    from services.document_service import ingest_document
+    from services.document_service import ingest_document, reset_gemini_client
+
+    # ── Gemini: drop any client cached on a previous (now-closed) event loop ──
+    # asyncio.run() gives each task a fresh loop; the Gemini SDK's async httpx
+    # pool is bound to the loop it was built on, so a reused client raises
+    # "Event loop is closed" on the next task. Rebuild it per run.
+    reset_gemini_client()
 
     # ── Milvus: connect + ensure collection exists in this worker process ──
     try:
