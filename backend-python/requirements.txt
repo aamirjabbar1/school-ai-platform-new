@@ -37,7 +37,10 @@ python-multipart==0.0.19
 aiofiles==24.1.0
 
 # ─── AI ───────────────────────────────────────────────────────────────────────
+# anthropic → chat responses + query classification
+# google-genai → document parsing (PDF/DOCX vision extraction)
 anthropic>=0.86.0
+google-genai>=1.0.0
 
 # ─── Document parsing ─────────────────────────────────────────────────────────
 pypdf==5.1.0

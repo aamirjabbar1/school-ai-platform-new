@@ -1,9 +1,9 @@
 """
-Document ingestion pipeline (Claude-only extraction, vision-aware):
+Document ingestion pipeline (Gemini-based extraction, vision-aware):
 
   1. Download file bytes from MinIO
-  2. Extract text + figure descriptions via Claude Sonnet 4.6
-       PDF:  8 pages/chunk, max_tokens=16384, vision-enabled prompt
+  2. Extract text + figure descriptions via Google Gemini 2.5
+       PDF:  8 pages/chunk, max_output_tokens=16384, vision-enabled prompt
        DOCX: 3000 words/batch, structuring pass
   3. Structure-aware chunking that respects pages/chapters/tables/figures
   4. Generate embeddings via OpenAI text-embedding-3-large
@@ -14,15 +14,16 @@ Document ingestion pipeline (Claude-only extraction, vision-aware):
 RAG search:
   1. Embed the query (OpenAI)
   2. ANN search in Milvus with optional filters
-  3. Return chunks with structured context (no Anthropic Citations API)
+  3. Return chunks with structured context
 """
 import asyncio
-import base64
 import io
+import os
 import re
 import uuid
 
-import anthropic
+from google import genai
+from google.genai import errors, types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,20 +31,48 @@ from models.models import Document, DocumentChunk
 from services import storage_service, embedding_service, vector_service
 
 
-_CLAUDE_MODEL = "claude-sonnet-4-6"
+# Default to gemini-2.5-pro for the best vision accuracy on tables, equations,
+# and figures. Override with GEMINI_MODEL (e.g. gemini-2.5-flash) for faster,
+# cheaper parsing at a small quality cost.
+_GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
+# Disable Gemini's safety filters for extraction: legitimate textbook content
+# (biology, history, literature) can otherwise trip the default thresholds and
+# silently drop whole pages of material.
+_SAFETY_SETTINGS = [
+    types.SafetySetting(category="HARM_CATEGORY_HARASSMENT", threshold="BLOCK_NONE"),
+    types.SafetySetting(category="HARM_CATEGORY_HATE_SPEECH", threshold="BLOCK_NONE"),
+    types.SafetySetting(category="HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold="BLOCK_NONE"),
+    types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
+]
 
 # Smaller PDF slices so the model can output every word verbatim within
-# max_tokens. 8 pages × ~500 words = ~4000 words ≈ 6k output tokens; figures
-# and tables push this higher, so we leave plenty of headroom.
+# max_output_tokens. 8 pages × ~500 words = ~4000 words ≈ 6k output tokens;
+# figures and tables push this higher, so we leave plenty of headroom.
 _PDF_PAGES_PER_CHUNK = 8
 _PDF_MAX_TOKENS = 16384
+
+# Gemini caps inline request payloads at ~20MB. We aim much lower so the
+# extraction prompt + headers fit comfortably. 5MB raw → ~7MB base64 → safe.
+# The slicer halves the page count adaptively when a slice exceeds this.
+_PDF_TARGET_SLICE_BYTES = 5 * 1024 * 1024
 
 _DOCX_WORDS_PER_BATCH = 3000
 _DOCX_MAX_TOKENS = 8192
 
-# Org limit is 30k input tokens/min on Sonnet 4.6.
-# Sequential calls (1 at a time) with a short gap stay under the limit.
+# A short gap between sequential calls keeps us under Gemini's per-minute
+# request-rate limits on lower tiers.
 _INTER_CHUNK_DELAY_SECS = 1
+
+_gemini_client: "genai.Client | None" = None
+
+
+def _get_gemini_client() -> "genai.Client":
+    """Lazily build a singleton Gemini client (reads GEMINI_API_KEY)."""
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _gemini_client
 
 
 # Vision-aware extraction prompt: reproduces every word, transcribes equations
@@ -84,69 +113,244 @@ _STRUCTURING_PROMPT = (
     "Output clean structured text only.\n\n"
 )
 
+# Fallback prompt without figure descriptions — used when the model returns no
+# usable text for a slice (e.g. a safety/recitation block triggered by certain
+# images). Drops the [FIGURE: ...] requirement so the model focuses on text.
+_EXTRACTION_PROMPT_PLAIN = (
+    "Extract ALL TEXT from this PDF exactly as written. Do not skip, summarize, "
+    "shorten, or paraphrase any text content. Reproduce every sentence, every "
+    "list item, every caption, every footnote, every header, and every footer.\n\n"
+    "FORMATTING RULES:\n"
+    "- At the start of each PDF page, put a marker on its own line: [Page N].\n"
+    "- Mark the start of a chapter with a single '#' heading.\n"
+    "- Mark sections with '##' and subsections with '###'. Headings sit on their own line.\n"
+    "- Preserve paragraph breaks as a blank line.\n"
+    "- Reproduce numbered and bulleted lists item-by-item.\n"
+    "- Reproduce tables as full GitHub-flavoured markdown tables with every cell.\n"
+    "- Transcribe mathematical equations and formulas in LaTeX: inline as $...$, "
+    "display as $$...$$.\n"
+    "- Skip images and figures entirely — DO NOT describe them, only extract text.\n"
+    "- Output plain structured text only. No commentary."
+)
 
-# ─── CLAUDE-BASED TEXT EXTRACTION ─────────────────────────────────────────────
 
-async def _extract_pdf_claude(data: bytes) -> str:
-    """Split PDF into 8-page chunks, extract text + figure descriptions sequentially."""
-    from pypdf import PdfReader, PdfWriter
+# ─── GEMINI-BASED TEXT EXTRACTION ─────────────────────────────────────────────
 
-    client = anthropic.AsyncAnthropic(max_retries=5)
+def _build_pdf_slice(reader, start: int, end: int) -> bytes:
+    """Render pages [start, end) into a fresh PDF and return its bytes."""
+    from pypdf import PdfWriter
+    writer = PdfWriter()
+    for p in range(start, end):
+        writer.add_page(reader.pages[p])
+    buf = io.BytesIO()
+    writer.write(buf)
+    return buf.getvalue()
+
+
+def _build_adaptive_slices(reader) -> list[tuple[int, int, bytes]]:
+    """Slice PDF into chunks of ≤ _PDF_PAGES_PER_CHUNK pages AND ≤ target bytes.
+
+    Returns list of (start_1based, end_1based, slice_bytes).
+    """
+    total_pages = len(reader.pages)
+    slices: list[tuple[int, int, bytes]] = []
+    i = 0
+    while i < total_pages:
+        end = min(i + _PDF_PAGES_PER_CHUNK, total_pages)
+        slice_bytes = _build_pdf_slice(reader, i, end)
+        # Halve until under byte budget or only one page remains
+        while len(slice_bytes) > _PDF_TARGET_SLICE_BYTES and (end - i) > 1:
+            end = i + max(1, (end - i) // 2)
+            slice_bytes = _build_pdf_slice(reader, i, end)
+        slices.append((i + 1, end, slice_bytes))
+        i = end
+    return slices
+
+
+async def _gemini_generate(client, contents: list, max_tokens: int):
+    """Single Gemini generate_content call with safety off + transient retry.
+
+    Retries on 429/5xx with exponential backoff (Gemini's SDK does not retry
+    these by default). Non-transient errors propagate to the caller.
+    """
+    config = types.GenerateContentConfig(
+        max_output_tokens=max_tokens,
+        temperature=0,
+        safety_settings=_SAFETY_SETTINGS,
+    )
+    last_exc: Exception | None = None
+    for attempt in range(5):
+        try:
+            return await client.aio.models.generate_content(
+                model=_GEMINI_MODEL,
+                contents=contents,
+                config=config,
+            )
+        except errors.APIError as exc:
+            code = getattr(exc, "code", None)
+            if code in (429, 500, 502, 503, 504) and attempt < 4:
+                delay = min(2 ** attempt, 30)
+                print(f"[Gemini] transient error {code} → retry {attempt + 1}/5 in {delay}s")
+                await asyncio.sleep(delay)
+                last_exc = exc
+                continue
+            raise
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Gemini generate_content failed without raising")
+
+
+def _gemini_text(response) -> tuple[str, str]:
+    """Pull text out of a Gemini response.
+
+    Returns (text, status), where status is:
+      "ok"      → usable text was produced
+      "blocked" → a safety / recitation / prompt block stopped generation
+      "empty"   → the model returned no text for some other reason
+    """
+    pf = getattr(response, "prompt_feedback", None)
+    if pf is not None and getattr(pf, "block_reason", None):
+        return "", "blocked"
+
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return "", "blocked"
+
+    cand = candidates[0]
+    content = getattr(cand, "content", None)
+    parts = getattr(content, "parts", None) or [] if content else []
+    text = "".join((getattr(p, "text", "") or "") for p in parts)
+    if text.strip():
+        return text, "ok"
+
+    finish = getattr(cand, "finish_reason", None)
+    finish_name = (getattr(finish, "name", None) or str(finish or "")).upper()
+    blocked = {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "BLOCKLIST", "SPII"}
+    return ("", "blocked") if finish_name in blocked else ("", "empty")
+
+
+def _is_too_large(exc: Exception) -> bool:
+    code = getattr(exc, "code", None)
+    msg = str(exc).lower()
+    return code == 413 or "request entity too large" in msg or "exceeds the maximum" in msg
+
+
+async def _split_and_recurse(client, reader, start: int, end: int, reason: str) -> list[str]:
+    """Halve a page range and extract each half independently."""
+    mid = start + max(1, (end - start) // 2)
+    print(f"[PDF extraction] {reason} on pages {start + 1}-{end} → splitting")
+    left = await _extract_slice_with_fallback(client, reader, start, mid)
+    await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
+    right = await _extract_slice_with_fallback(client, reader, mid, end)
+    return left + right
+
+
+async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> list[str]:
+    """Extract a page range with progressive fallbacks:
+
+      1. Full prompt (with figure descriptions)
+      2. On a too-large error → halve and recurse
+      3. On a blocked/empty response → retry once with the plain prompt (no figures)
+      4. Still blocked/empty → halve and recurse
+      5. Single page still unusable → emit a placeholder marker and continue
+    """
+    slice_bytes = _build_pdf_slice(reader, start, end)
+    pdf_part = types.Part.from_bytes(data=slice_bytes, mime_type="application/pdf")
+    offset_hint = (
+        f"\n\nThis PDF slice covers pages {start + 1} through {end} of the "
+        f"original document. Use those page numbers in [Page N] markers."
+    )
+
+    async def _run(prompt: str):
+        return await _gemini_generate(client, [pdf_part, prompt + offset_hint], _PDF_MAX_TOKENS)
+
+    # Attempt 1: full prompt (with figure descriptions)
+    try:
+        resp = await _run(_EXTRACTION_PROMPT)
+    except errors.APIError as exc:
+        if _is_too_large(exc) and (end - start) > 1:
+            return await _split_and_recurse(
+                client, reader, start, end,
+                f"request too large ({len(slice_bytes) / 1024 / 1024:.1f} MB)",
+            )
+        raise
+
+    text, status = _gemini_text(resp)
+    if status == "ok":
+        return [text]
+
+    # Blocked / empty → retry once without figure descriptions
+    print(
+        f"[PDF extraction] output {status} on pages {start + 1}-{end} "
+        f"→ retrying without figure descriptions"
+    )
+    await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
+    try:
+        resp = await _run(_EXTRACTION_PROMPT_PLAIN)
+    except errors.APIError as exc:
+        if _is_too_large(exc) and (end - start) > 1:
+            return await _split_and_recurse(
+                client, reader, start, end,
+                f"request too large ({len(slice_bytes) / 1024 / 1024:.1f} MB)",
+            )
+        raise
+
+    text, status = _gemini_text(resp)
+    if status == "ok":
+        return [text]
+
+    # Still blocked/empty → split if more than one page remains
+    if (end - start) > 1:
+        return await _split_and_recurse(client, reader, start, end, f"output {status} persists")
+
+    # Single page permanently unusable — emit a marker and move on
+    print(
+        f"[PDF extraction] WARNING: page {start + 1} produced no usable text "
+        f"({status}), skipping with placeholder"
+    )
+    return [
+        f"[Page {start + 1}]\n\n"
+        f"[Content unavailable on this page — extraction returned no usable text]"
+    ]
+
+
+async def _extract_pdf_gemini(data: bytes) -> str:
+    """Adaptive PDF slicing → Gemini 2.5 vision extraction.
+
+    Slices are capped by both page count (so output fits max_output_tokens) and
+    raw byte size (so the inline request stays under Gemini's ~20MB limit).
+    Per-slice problems (too-large errors, blocked/empty responses) are handled
+    with progressive fallbacks so one bad slice doesn't fail the whole document.
+    """
+    from pypdf import PdfReader
+
+    client = _get_gemini_client()
     reader = PdfReader(io.BytesIO(data))
     total_pages = len(reader.pages)
+    if total_pages == 0:
+        return ""
 
-    chunk_starts = list(range(0, total_pages, _PDF_PAGES_PER_CHUNK))
+    slices = _build_adaptive_slices(reader)
+    print(
+        f"[PDF extraction] {total_pages} pages → {len(slices)} slice(s); "
+        f"largest slice: {max(len(s[2]) for s in slices) / 1024 / 1024:.1f} MB"
+    )
+
     results: list[str] = []
-
-    for i, start in enumerate(chunk_starts):
-        end = min(start + _PDF_PAGES_PER_CHUNK, total_pages)
-
-        writer = PdfWriter()
-        for page_num in range(start, end):
-            writer.add_page(reader.pages[page_num])
-
-        chunk_buf = io.BytesIO()
-        writer.write(chunk_buf)
-        pdf_b64 = base64.standard_b64encode(chunk_buf.getvalue()).decode()
-
-        # Hint Claude with the absolute page numbers in the original PDF so
-        # the [Page N] markers it emits match real page numbers.
-        offset_hint = (
-            f"\n\nThis PDF slice covers pages {start + 1} through {end} of the "
-            f"original document. Use those page numbers in [Page N] markers."
-        )
-
-        response = await client.messages.create(
-            model=_CLAUDE_MODEL,
-            max_tokens=_PDF_MAX_TOKENS,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "document",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "application/pdf",
-                            "data": pdf_b64,
-                        },
-                    },
-                    {"type": "text", "text": _EXTRACTION_PROMPT + offset_hint},
-                ],
-            }],
-        )
-        results.append(response.content[0].text)
-
-        if i < len(chunk_starts) - 1:
+    for idx, (start_1, end_1, _bytes) in enumerate(slices):
+        sub_results = await _extract_slice_with_fallback(client, reader, start_1 - 1, end_1)
+        results.extend(sub_results)
+        if idx < len(slices) - 1:
             await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
 
     return "\n\n".join(results)
 
 
-async def _extract_docx_claude(data: bytes) -> str:
-    """Extract DOCX content via python-docx, then structure sequentially via Claude Sonnet."""
+async def _extract_docx_gemini(data: bytes) -> str:
+    """Extract DOCX content via python-docx, then structure sequentially via Gemini."""
     from docx import Document as DocxDoc
 
-    client = anthropic.AsyncAnthropic(max_retries=5)
+    client = _get_gemini_client()
     doc = DocxDoc(io.BytesIO(data))
 
     raw_blocks: list[str] = []
@@ -188,15 +392,13 @@ async def _extract_docx_claude(data: bytes) -> str:
 
     results: list[str] = []
     for i, raw_text in enumerate(batches):
-        response = await client.messages.create(
-            model=_CLAUDE_MODEL,
-            max_tokens=_DOCX_MAX_TOKENS,
-            messages=[{
-                "role": "user",
-                "content": _STRUCTURING_PROMPT + raw_text,
-            }],
+        resp = await _gemini_generate(
+            client, [_STRUCTURING_PROMPT + raw_text], _DOCX_MAX_TOKENS
         )
-        results.append(response.content[0].text)
+        text, status = _gemini_text(resp)
+        # If structuring is blocked/empty, fall back to the raw extracted text
+        # — it's already clean enough to chunk and embed.
+        results.append(text if status == "ok" else raw_text)
         if i < len(batches) - 1:
             await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
 
@@ -228,9 +430,9 @@ def _extract_doc_sync(data: bytes) -> str:
 async def extract_text_from_bytes(data: bytes, file_type: str) -> str:
     ext = file_type.lower().lstrip(".")
     if ext == "pdf":
-        return await _extract_pdf_claude(data)
+        return await _extract_pdf_gemini(data)
     if ext == "docx":
-        return await _extract_docx_claude(data)
+        return await _extract_docx_gemini(data)
     if ext in ("doc", "inp"):
         return await asyncio.to_thread(_extract_doc_sync, data)
     if ext == "txt":
@@ -241,7 +443,7 @@ async def extract_text_from_bytes(data: bytes, file_type: str) -> str:
 # ─── STRUCTURE-AWARE CHUNKING ────────────────────────────────────────────────
 #
 # Goals:
-#   - Real page numbers (parsed from [Page N] markers Claude emits)
+#   - Real page numbers (parsed from [Page N] markers the model emits)
 #   - Chapter/section context preserved (running counter)
 #   - Tables and [FIGURE: ...] blocks are NEVER split across chunks
 #   - Greedy paragraph packing up to a target word count, with overlap
@@ -768,8 +970,8 @@ async def search_knowledge_base(
 # ─── BUILD CONTEXT STRING FOR PROMPTS ────────────────────────────────────────
 
 def build_context(search_results: list[dict]) -> str | None:
-    """Plain-text RAG context. No Anthropic Citations API; the AI may still
-    refer to a chapter/page naturally in prose."""
+    """Plain-text RAG context. The AI may still refer to a chapter/page
+    naturally in prose."""
     if not search_results:
         return None
     parts = []

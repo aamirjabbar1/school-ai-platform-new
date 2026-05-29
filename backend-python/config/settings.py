@@ -40,6 +40,10 @@ JWT_EXPIRES_DAYS = int(os.getenv("JWT_EXPIRES_DAYS", 7))
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 AI_MODEL = os.getenv("AI_MODEL", "claude-opus-4-6")
 
+# Gemini powers document parsing (PDF/DOCX vision extraction).
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
 # ─── School ───────────────────────────────────────────────────────────────────
 SCHOOL_NAME = os.getenv("SCHOOL_NAME", "School AI Platform")
 SCHOOL_TAGLINE = os.getenv("SCHOOL_TAGLINE", "Excellence in Education")
