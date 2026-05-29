@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { assignmentAPI } from '../../services/api';
-import { Bot, Loader2, Send, CheckCircle, X, Wand2 } from 'lucide-react';
+import { Loader2, Send, CheckCircle, X, Wand2 } from 'lucide-react';
 
 const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Computer Science', 'Social Studies', 'Physics', 'Chemistry', 'Biology'];
 const CLASSES = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
@@ -15,58 +15,86 @@ export default function CreateAssignment() {
     assignment_type: 'homework', max_marks: 100, instructions: '',
   });
   const [aiTopic, setAiTopic] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState(''); // '' | 'generating' | 'creating'
+  const [aiGenerated, setAiGenerated] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const generateWithAI = async () => {
-    if (!aiTopic || !form.subject || !form.class_name) {
-      setError('Please select subject, class, and enter a topic before generating');
+  const deriveTitle = (content) => {
+    const lines = content.split('\n').filter((l) => l.trim());
+    const titleLine = lines.find((l) => l.toLowerCase().includes('title:'));
+    return titleLine ? titleLine.replace(/.*title:\s*/i, '').trim() : '';
+  };
+
+  // Step 1: draft the assignment from the topic INTO the editable fields for review.
+  // This does NOT create/publish anything — the teacher reviews and edits first.
+  const runGenerate = async () => {
+    if (!form.subject || !form.class_name) {
+      setError('Please select a subject and class first');
       return;
     }
-    setAiLoading(true);
+    if (!aiTopic.trim()) {
+      setError('Enter a topic to generate content');
+      return;
+    }
+    setBusy(true);
+    setPhase('generating');
     setError('');
     try {
       const { data } = await assignmentAPI.generateWithAI({
-        topic: aiTopic,
+        topic: aiTopic.trim(),
         subject: form.subject,
         class_level: form.class_name,
         assignment_type: form.assignment_type,
       });
-      // Parse title from first line
-      const lines = data.content.split('\n').filter((l) => l.trim());
-      const titleLine = lines.find((l) => l.toLowerCase().includes('title:'));
-      if (titleLine) {
-        set('title', titleLine.replace(/.*title:\s*/i, '').trim());
-      }
-      set('description', data.content);
+      const content = (data.content || '').trim();
+      if (!content) throw new Error('No content was generated');
+      setForm((f) => ({ ...f, title: f.title.trim() || deriveTitle(content) || aiTopic.trim(), description: content }));
+      setAiGenerated(true);
     } catch (e) {
-      setError(e.response?.data?.error || 'Failed to generate content. Make sure relevant books are uploaded.');
+      setError(e.response?.data?.detail || e.response?.data?.error || 'Failed to generate content. Make sure relevant books are uploaded.');
     } finally {
-      setAiLoading(false);
+      setBusy(false);
+      setPhase('');
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!form.title || !form.description || !form.subject || !form.class_name) {
-      setError('Please fill all required fields');
+  // Step 2: create the (reviewed) assignment and publish it to students.
+  const createAssignment = async () => {
+    if (!form.subject || !form.class_name) {
+      setError('Please select a subject and class');
       return;
     }
-    setSubmitting(true);
+    if (!form.title.trim() || !form.description.trim()) {
+      setError('Add a title and description — or enter a topic above to generate a draft');
+      return;
+    }
+    setBusy(true);
+    setPhase('creating');
     setError('');
     try {
       await assignmentAPI.create(form);
       setSuccess(true);
       setTimeout(() => navigate('/teacher/dashboard'), 2000);
     } catch (e) {
-      setError(e.response?.data?.error || 'Failed to create assignment');
+      setError(e.response?.data?.detail || e.response?.data?.error || 'Failed to create assignment');
     } finally {
-      setSubmitting(false);
+      setBusy(false);
+      setPhase('');
     }
+  };
+
+  // One button: with a topic and no content yet, generate a draft for review;
+  // otherwise create the reviewed assignment.
+  const willGenerate = !form.description.trim() && !!aiTopic.trim();
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (willGenerate) runGenerate();
+    else createAssignment();
   };
 
   if (success) {
@@ -98,25 +126,29 @@ export default function CreateAssignment() {
             <Wand2 size={18} className="text-blue-600" />
             <span className="font-semibold text-blue-800 text-sm">AI Assignment Generator</span>
           </div>
-          <p className="text-xs text-blue-600 mb-3">Generate assignment content from your school's knowledge base</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={aiTopic}
-              onChange={(e) => setAiTopic(e.target.value)}
-              placeholder="Enter topic (e.g. Photosynthesis, Algebra Equations, Mughal Empire)"
-              className="input-field flex-1 text-sm"
-            />
-            <button
-              onClick={generateWithAI}
-              disabled={aiLoading}
-              className="btn-primary flex items-center gap-2 whitespace-nowrap"
-            >
-              {aiLoading ? <Loader2 size={16} className="animate-spin" /> : <Bot size={16} />}
-              {aiLoading ? 'Generating...' : 'Generate'}
+          <p className="text-xs text-blue-600 mb-3">
+            Enter a topic and pick a subject &amp; class below, then click <strong>Generate with AI</strong>. The AI drafts the content into the fields below for you to <strong>review and edit</strong> — nothing is sent to students until you click <strong>Create Assignment</strong>. To write it yourself, just fill in the Description.
+          </p>
+          <input
+            type="text"
+            value={aiTopic}
+            onChange={(e) => setAiTopic(e.target.value)}
+            placeholder="Enter topic (e.g. Photosynthesis, Algebra Equations, Mughal Empire)"
+            className="input-field w-full text-sm"
+          />
+          {aiGenerated && (
+            <button type="button" onClick={runGenerate} disabled={busy} className="mt-2 text-xs text-blue-700 hover:underline flex items-center gap-1 disabled:opacity-50">
+              <Wand2 size={12} /> Regenerate from this topic
             </button>
-          </div>
+          )}
         </div>
+
+        {aiGenerated && !success && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex items-start gap-2">
+            <CheckCircle size={16} className="shrink-0 mt-0.5" />
+            <span>AI draft ready. <strong>Review and edit</strong> the title and content below, then click <strong>Create Assignment</strong> to publish to students.</span>
+          </div>
+        )}
 
         {/* Assignment Form */}
         <form onSubmit={handleSubmit} className="card space-y-4">
@@ -150,19 +182,18 @@ export default function CreateAssignment() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
-            <input type="text" value={form.title} onChange={(e) => set('title', e.target.value)} className="input-field" placeholder="Assignment title" required />
+            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <input type="text" value={form.title} onChange={(e) => set('title', e.target.value)} className="input-field" placeholder="Leave blank to auto-generate from the topic" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description / Content *</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Description / Content</label>
             <textarea
               value={form.description}
               onChange={(e) => set('description', e.target.value)}
               rows={10}
               className="input-field resize-none"
-              placeholder="Describe the assignment..."
-              required
+              placeholder="Leave blank to generate from the topic above, or write the assignment yourself..."
             />
           </div>
 
@@ -178,12 +209,14 @@ export default function CreateAssignment() {
           </div>
 
           <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => navigate(-1)} className="btn-secondary flex-1">
+            <button type="button" onClick={() => navigate(-1)} disabled={busy} className="btn-secondary flex-1">
               Cancel
             </button>
-            <button type="submit" disabled={submitting} className="btn-primary flex-1 flex items-center justify-center gap-2">
-              {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-              Create Assignment
+            <button type="submit" disabled={busy} className="btn-primary flex-1 flex items-center justify-center gap-2">
+              {busy ? <Loader2 size={16} className="animate-spin" /> : (willGenerate ? <Wand2 size={16} /> : <Send size={16} />)}
+              {busy
+                ? (phase === 'generating' ? 'Generating draft…' : 'Creating…')
+                : (willGenerate ? 'Generate with AI' : 'Create Assignment')}
             </button>
           </div>
         </form>

@@ -203,6 +203,105 @@ QUESTION_PAPER_TOOL: dict[str, Any] = {
 }
 
 
+# Structured-output tool: predicted "important" / likely exam questions, derived
+# from analysing the past papers in the knowledge base.
+IMPORTANT_QUESTIONS_TOOL: dict[str, Any] = {
+    "name": "submit_important_questions",
+    "description": (
+        "Submit the predicted important / most-likely exam questions derived from analysing the "
+        "provided past papers. Group by topic, rank by importance, and justify each prediction."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string", "description": "1-3 sentence overview of the exam patterns found across the past papers"},
+            "predictions": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "topic":      {"type": "string", "description": "The topic / chapter this question belongs to"},
+                        "question":   {"type": "string", "description": "A question likely to appear in the next exam"},
+                        "importance": {"type": "string", "enum": ["high", "medium", "low"]},
+                        "frequency":  {"type": "string", "description": "How often this topic/question recurs, e.g. 'appears in 3 of 4 papers'"},
+                        "rationale":  {"type": "string", "description": "Why this is likely to appear"},
+                    },
+                    "required": ["topic", "question", "importance", "rationale"],
+                },
+            },
+        },
+        "required": ["summary", "predictions"],
+    },
+}
+
+
+# Structured-output tool: grades a student's self-assessment against a model key.
+GRADE_ASSESSMENT_TOOL: dict[str, Any] = {
+    "name": "submit_grading",
+    "description": (
+        "Submit the graded results of a student's self-assessment, with per-question scores, "
+        "correctness, specific feedback, an overall summary, and weak topics to revise."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "number":     {"type": "integer", "minimum": 1},
+                        "score":      {"type": "number", "description": "Marks awarded for this answer"},
+                        "max_marks":  {"type": "integer", "minimum": 1},
+                        "is_correct": {"type": "boolean"},
+                        "feedback":   {"type": "string", "description": "Short, specific feedback for the student"},
+                    },
+                    "required": ["number", "score", "max_marks", "feedback"],
+                },
+            },
+            "total_score":      {"type": "number"},
+            "total_max":        {"type": "number"},
+            "overall_feedback": {"type": "string", "description": "Encouraging 2-4 sentence summary of performance"},
+            "weak_topics":      {"type": "array", "items": {"type": "string"}, "description": "Topics the student should revise"},
+        },
+        "required": ["results", "total_score", "total_max", "overall_feedback"],
+    },
+}
+
+
+def _flatten_paper(paper_data: dict) -> tuple[list[dict], list[dict]]:
+    """Flatten a submit_question_paper tool result into (questions, answer_key)."""
+    questions: list[dict] = []
+    answer_key: list[dict] = []
+    for section in paper_data.get("sections", []):
+        for q in section.get("questions", []):
+            questions.append({
+                "number":     q.get("number"),
+                "section":    section.get("name"),
+                "question":   q.get("question"),
+                "type":       q.get("type"),
+                "options":    q.get("options"),
+                "marks":      q.get("marks"),
+                "difficulty": q.get("difficulty"),
+            })
+            answer_key.append({
+                "number":         q.get("number"),
+                "correct_answer": q.get("correct_answer"),
+                "marks":          q.get("marks"),
+            })
+    return questions, answer_key
+
+
+def _extract_tool_input(response, tool_name: str) -> dict | None:
+    """Return the input of the first tool_use block matching tool_name, or None."""
+    for block in response.content:
+        if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
+            return block.input
+    return None
+
+
 # ─── STREAMING CHAT WITH RAG ─────────────────────────────────────────────────
 
 async def stream_chat_with_rag(
@@ -424,41 +523,75 @@ async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
     duration_minutes = params.get("duration_minutes", 60)
     topics           = params.get("topics", [])
     difficulty       = params.get("difficulty_distribution", {"easy": 30, "medium": 50, "hard": 20})
+    generation_mode  = params.get("generation_mode", "standard")   # "standard" | "model"
+    use_past_papers  = params.get("use_past_papers", True)
 
     topic_query = " ".join(topics) if topics else subject
-    search_results = await search_knowledge_base(
-        topic_query,
-        subject=subject,
-        class_level=class_level,
-        document_type="book",
-        limit=15,
+
+    # Curriculum (book) content — the source of truth for facts and topics.
+    book_results = await search_knowledge_base(
+        topic_query, subject=subject, class_level=class_level,
+        document_type="book", limit=15,
     )
-    if not search_results:
+
+    # Past-paper (exam) content — pattern/style reference; required for model mode.
+    past_results: list[dict] = []
+    if use_past_papers or generation_mode == "model":
+        past_results = await search_knowledge_base(
+            topic_query, subject=subject, class_level=class_level,
+            document_type="exam", limit=15,
+        )
+
+    if generation_mode == "model" and not past_results:
+        raise ValueError(
+            "No past papers found for this subject and class. Upload past papers in the "
+            "Knowledge Base first, or switch to Standard mode."
+        )
+    if not book_results and not past_results:
         raise ValueError("No content found in knowledge base for the specified subject and class level.")
 
-    kb_context = build_context(search_results) or ""
-    kb_sources = build_kb_sources(search_results)
+    book_context = build_context(book_results) or ""
+    past_context = build_context(past_results) or ""
+    kb_sources = build_kb_sources(book_results + past_results)
     school = get_school()
 
-    instructions = f"""Create a complete {paper_type.replace('_', ' ')} examination paper for {school}.
-
-REQUIREMENTS:
+    requirements = f"""REQUIREMENTS:
 - Subject: {subject}
 - Class:   {class_level}
 - Total marks:       {total_marks}
 - Duration:          {duration_minutes} minutes
 - Difficulty mix:    {difficulty.get('easy', 30)}% easy / {difficulty.get('medium', 50)}% medium / {difficulty.get('hard', 20)}% hard
-{f"- Focus topics:      {', '.join(topics)}" if topics else ""}
+{f"- Focus topics:      {', '.join(topics)}" if topics else ""}"""
 
-STRUCTURE (distribute marks appropriately):
-- Section A: Multiple Choice Questions (MCQs)
-- Section B: Short Answer Questions
-- Section C: Long Answer / Essay Questions
+    if generation_mode == "model":
+        header = (
+            f"Create a MODEL {paper_type.replace('_', ' ')} paper for {school} by analysing the PAST "
+            "PAPERS provided below. Study them to infer the section structure, marks distribution, "
+            "question styles, recurring topics, and difficulty balance, then produce a NEW paper that "
+            "mirrors that exam pattern. Do NOT copy past-paper questions verbatim — write fresh "
+            "questions in the same style. Keep every question aligned to the curriculum content."
+        )
+    else:
+        header = (
+            f"Create a complete {paper_type.replace('_', ' ')} examination paper for {school}.\n\n"
+            "STRUCTURE (distribute marks appropriately):\n"
+            "- Section A: Multiple Choice Questions (MCQs)\n"
+            "- Section B: Short Answer Questions\n"
+            "- Section C: Long Answer / Essay Questions"
+        )
 
-Use the curriculum content provided below as the SOLE source. Then call the `submit_question_paper` tool exactly once with the complete paper.
+    context_blocks = f"CURRICULUM CONTENT (source of truth):\n{book_context or '(none provided)'}"
+    if past_context:
+        context_blocks += (
+            "\n\n---\n\nPAST PAPER REFERENCE (use for structure, style, difficulty and recurring "
+            f"topics — do not copy verbatim):\n{past_context}"
+        )
 
-CURRICULUM CONTENT:
-{kb_context}"""
+    instructions = (
+        f"{header}\n\n{requirements}\n\n"
+        "Use the content below. Then call the `submit_question_paper` tool exactly once with the "
+        f"complete paper.\n\n{context_blocks}"
+    )
 
     paper_system = [{
         "type": "text",
@@ -482,33 +615,11 @@ CURRICULUM CONTENT:
         tool_choice={"type": "tool", "name": "submit_question_paper"},
     )
 
-    paper_data: dict[str, Any] | None = None
-    for block in response.content:
-        if block.type == "tool_use" and block.name == "submit_question_paper":
-            paper_data = block.input
-            break
-
+    paper_data = _extract_tool_input(response, "submit_question_paper")
     if not paper_data:
         raise ValueError("Claude did not return a structured question paper.")
 
-    questions: list[dict] = []
-    answer_key: list[dict] = []
-    for section in paper_data.get("sections", []):
-        for q in section.get("questions", []):
-            questions.append({
-                "number":     q.get("number"),
-                "section":    section.get("name"),
-                "question":   q.get("question"),
-                "type":       q.get("type"),
-                "options":    q.get("options"),
-                "marks":      q.get("marks"),
-                "difficulty": q.get("difficulty"),
-            })
-            answer_key.append({
-                "number":         q.get("number"),
-                "correct_answer": q.get("correct_answer"),
-                "marks":          q.get("marks"),
-            })
+    questions, answer_key = _flatten_paper(paper_data)
 
     return {
         "paper_data": paper_data,
@@ -516,6 +627,216 @@ CURRICULUM CONTENT:
         "answer_key": answer_key,
         "sources":    [s["title"] for s in kb_sources],
     }
+
+
+# ─── PREDICT IMPORTANT QUESTIONS (from past papers) ──────────────────────────
+
+async def predict_important_questions(
+    subject: str,
+    class_level: str,
+    paper_type: str | None = None,
+) -> dict:
+    """Analyse uploaded past papers for a subject/class and predict likely exam questions."""
+    results = await search_knowledge_base(
+        f"{subject} {class_level} important exam questions topics",
+        subject=subject, class_level=class_level,
+        document_type="exam", limit=40,
+    )
+    if not results:
+        raise ValueError(
+            "No past papers found for this subject and class. Upload past papers in the "
+            "Knowledge Base first."
+        )
+
+    context = build_context(results) or ""
+    sources = build_kb_sources(results)
+    school = get_school()
+
+    instructions = f"""Analyse the PAST EXAM PAPERS below for {subject} ({class_level}) at {school}.
+Identify the topics and questions that recur most often and are therefore most likely to appear in the
+next exam. Consider frequency across papers, marks weighting, and curriculum importance. Predict a
+focused set (roughly 10-20) of the most important questions, grouped by topic. Then call the
+`submit_important_questions` tool exactly once.
+
+PAST PAPERS:
+{context}"""
+
+    system = [{
+        "type": "text",
+        "text": (
+            f"You are an exam-pattern analyst for {school}. You study past papers to predict likely "
+            "questions. Be concrete and base every prediction on evidence in the provided papers. "
+            "Always finish by calling the submit_important_questions tool."
+        ),
+        "cache_control": {"type": "ephemeral"},
+    }]
+    tool = dict(IMPORTANT_QUESTIONS_TOOL)
+    tool["cache_control"] = {"type": "ephemeral"}
+
+    response = await get_async_client().messages.create(
+        model=get_model(),
+        max_tokens=4096,
+        system=system,
+        messages=[{"role": "user", "content": instructions}],
+        tools=[tool],
+        tool_choice={"type": "tool", "name": "submit_important_questions"},
+    )
+
+    data = _extract_tool_input(response, "submit_important_questions")
+    if not data:
+        raise ValueError("Claude did not return any predictions.")
+
+    return {
+        "summary":     data.get("summary", ""),
+        "predictions": data.get("predictions", []),
+        "sources":     [s["title"] for s in sources],
+    }
+
+
+# ─── GENERATE PRACTICE TEST (student self-practice) ──────────────────────────
+
+async def generate_practice_test(
+    subject: str,
+    class_level: str,
+    topics: list[str] | None = None,
+    num_questions: int = 10,
+    difficulty: str = "mixed",
+) -> dict:
+    """Generate a lightweight, self-gradable practice test from books + past papers."""
+    topics = topics or []
+    topic_query = " ".join(topics) if topics else subject
+
+    book_results = await search_knowledge_base(
+        topic_query, subject=subject, class_level=class_level,
+        document_type="book", limit=10,
+    )
+    past_results = await search_knowledge_base(
+        topic_query, subject=subject, class_level=class_level,
+        document_type="exam", limit=6,
+    )
+    if not book_results and not past_results:
+        raise ValueError("No content found in the knowledge base for this subject and class.")
+
+    context = build_context(book_results + past_results) or ""
+    sources = build_kb_sources(book_results + past_results)
+    school = get_school()
+
+    diff_line = {
+        "easy":   "Keep all questions easy.",
+        "medium": "Keep all questions at medium difficulty.",
+        "hard":   "Make all questions challenging.",
+        "mixed":  "Use a mix of easy, medium, and hard questions.",
+    }.get(difficulty, "Use a mix of easy, medium, and hard questions.")
+
+    instructions = f"""Create a self-practice test for {class_level} {subject} students at {school}.
+- Exactly {num_questions} questions in total.
+- {diff_line}
+- Favour Multiple Choice and Short Answer questions suitable for quick self-assessment; you may include
+  1-2 long-answer questions.
+- Every question MUST include a clear, complete model answer in `correct_answer`.
+{f"- Focus topics: {', '.join(topics)}" if topics else ""}
+
+Use ONLY the curriculum content below. Then call the `submit_question_paper` tool exactly once.
+
+CURRICULUM CONTENT:
+{context}"""
+
+    system = [{
+        "type": "text",
+        "text": (
+            f"You are a practice-test creator for {school}. Build curriculum-aligned self-practice tests "
+            "strictly from the provided content. Always finish by calling the submit_question_paper tool."
+        ),
+        "cache_control": {"type": "ephemeral"},
+    }]
+    tool = dict(QUESTION_PAPER_TOOL)
+    tool["cache_control"] = {"type": "ephemeral"}
+
+    response = await get_async_client().messages.create(
+        model=get_model(),
+        max_tokens=8192,
+        system=system,
+        messages=[{"role": "user", "content": instructions}],
+        tools=[tool],
+        tool_choice={"type": "tool", "name": "submit_question_paper"},
+    )
+
+    paper_data = _extract_tool_input(response, "submit_question_paper")
+    if not paper_data:
+        raise ValueError("Claude did not return a practice test.")
+
+    questions, answer_key = _flatten_paper(paper_data)
+    return {
+        "title":      paper_data.get("title", f"{subject} Practice Test"),
+        "questions":  questions,
+        "answer_key": answer_key,
+        "sources":    [s["title"] for s in sources],
+    }
+
+
+# ─── GRADE STUDENT SELF-ASSESSMENT ───────────────────────────────────────────
+
+async def grade_self_assessment(
+    questions: list[dict],
+    answer_key: list[dict],
+    student_answers: dict,
+) -> dict:
+    """Grade a student's practice answers against the model key; return scores + feedback."""
+    school = get_school()
+    key_by_num = {a.get("number"): a for a in answer_key}
+
+    def _student_answer(num) -> str:
+        return str(
+            student_answers.get(str(num))
+            if student_answers.get(str(num)) is not None
+            else student_answers.get(num, "")
+        ).strip()
+
+    blocks: list[str] = []
+    for q in questions:
+        num = q.get("number")
+        marks = q.get("marks", 1)
+        opts = ("\nOptions: " + " | ".join(q.get("options") or [])) if q.get("options") else ""
+        model = key_by_num.get(num, {}).get("correct_answer", "")
+        ans = _student_answer(num) or "(no answer)"
+        blocks.append(
+            f"Q{num} ({marks} marks) [{q.get('type', 'short_answer')}]: {q.get('question')}{opts}\n"
+            f"Model answer: {model}\n"
+            f"Student answer: {ans}"
+        )
+
+    instructions = f"""Grade this student's self-assessment for {school}. For each question, compare the
+student's answer to the model answer and award marks out of that question's marks. MCQs are
+all-or-nothing; short/long answers may receive partial credit for partially correct reasoning. Give brief,
+specific, encouraging feedback per question. Then summarise overall performance and list weak topics to
+revise. Call the `submit_grading` tool exactly once.
+
+{chr(10).join(f'---{chr(10)}{b}' for b in blocks)}"""
+
+    system = [{
+        "type": "text",
+        "text": (
+            "You are a fair, encouraging examiner. Grade strictly against the model answers but reward "
+            "correct reasoning and partial understanding. Always finish by calling the submit_grading tool."
+        ),
+        "cache_control": {"type": "ephemeral"},
+    }]
+    tool = dict(GRADE_ASSESSMENT_TOOL)
+    tool["cache_control"] = {"type": "ephemeral"}
+
+    response = await get_async_client().messages.create(
+        model=get_model(),
+        max_tokens=4096,
+        system=system,
+        messages=[{"role": "user", "content": instructions}],
+        tools=[tool],
+        tool_choice={"type": "tool", "name": "submit_grading"},
+    )
+
+    data = _extract_tool_input(response, "submit_grading")
+    if not data:
+        raise ValueError("Claude did not return grading results.")
+    return data
 
 
 # ─── GENERATE ASSIGNMENT CONTENT ─────────────────────────────────────────────

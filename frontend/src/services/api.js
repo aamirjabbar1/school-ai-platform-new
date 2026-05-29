@@ -66,7 +66,8 @@ export const assignmentAPI = {
   create: (data) => api.post('/assignments', data),
   update: (id, data) => api.put(`/assignments/${id}`, data),
   delete: (id) => api.delete(`/assignments/${id}`),
-  generateWithAI: (data) => api.post('/assignments/ai-generate', data),
+  // AI generation runs an LLM call + RAG retrieval; allow up to 10 min.
+  generateWithAI: (data) => api.post('/assignments/ai-generate', data, { timeout: 600000 }),
   submit: (id, data) => {
     const formData = new FormData();
     Object.entries(data).forEach(([k, v]) => { if (v !== undefined && v !== null) formData.append(k, v); });
@@ -81,8 +82,11 @@ export const assignmentAPI = {
 export const documentAPI = {
   getAll: (params) => api.get('/documents', { params }),
   getStats: () => api.get('/documents/stats'),
-  upload: (formData) => api.post('/documents/upload', formData, {
+  // onUploadProgress: optional (e) => {} to drive a progress bar
+  upload: (formData, onUploadProgress) => api.post('/documents/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 300000,
+    onUploadProgress,
   }),
   reingest: (id) => api.post(`/documents/${id}/reingest`),
   delete: (id) => api.delete(`/documents/${id}`),
@@ -92,12 +96,17 @@ export const documentAPI = {
 export const questionPaperAPI = {
   getAll: (params) => api.get('/question-papers', { params }),
   getOne: (id) => api.get(`/question-papers/${id}`),
-  generate: (data) => api.post('/question-papers/generate', data),
+  // Generation runs an LLM call + RAG retrieval (books + past papers); allow up to 10 min.
+  generate: (data) => api.post('/question-papers/generate', data, { timeout: 600000 }),
   create: (data) => api.post('/question-papers', data),
   togglePublish: (id) => api.put(`/question-papers/${id}/publish`),
   delete: (id) => api.delete(`/question-papers/${id}`),
   // Server-rendered PDF (teachers get answer key, students get questions only)
   downloadPdf: (id) => api.get(`/question-papers/${id}/pdf`, { responseType: 'blob' }),
+  // AI exam suite (powered by uploaded past papers)
+  predictImportant: (data) => api.post('/question-papers/predict-important', data, { timeout: 120000 }),
+  generatePractice: (data) => api.post('/question-papers/practice/generate', data, { timeout: 120000 }),
+  gradePractice: (data) => api.post('/question-papers/practice/grade', data, { timeout: 120000 }),
 };
 
 // ─── ADMIN ────────────────────────────────────────────────────────────────────

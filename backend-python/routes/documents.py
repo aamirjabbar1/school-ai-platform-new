@@ -104,6 +104,8 @@ async def get_documents(
 
 ALLOWED_DOCUMENT_TYPES = {"book", "exam", "assignment", "notes", "worksheet"}
 ALLOWED_LANGUAGES = {"English", "Urdu", "Bilingual"}
+# Sub-classification for question papers (document_type == "exam")
+ALLOWED_PAPER_TYPES = {"past_paper", "test", "midterm", "final", "mcqs"}
 
 
 @router.post("/upload")
@@ -117,6 +119,8 @@ async def upload_document(
     language: str = Form(None),
     academic_year: str = Form(None),
     term: str = Form(None),
+    paper_type: str = Form(None),
+    chapter: str = Form(None),
     user: User = Depends(require_roles("admin", "teacher")),
     db: AsyncSession = Depends(get_db),
 ):
@@ -139,6 +143,11 @@ async def upload_document(
     if detected_language not in ALLOWED_LANGUAGES:
         raise HTTPException(status_code=400, detail=f"language must be one of: {', '.join(ALLOWED_LANGUAGES)}")
 
+    detected_paper_type = (paper_type or "").strip() or None
+    if detected_paper_type and detected_paper_type not in ALLOWED_PAPER_TYPES:
+        raise HTTPException(status_code=400, detail=f"paper_type must be one of: {', '.join(ALLOWED_PAPER_TYPES)}")
+    detected_chapter = (chapter or "").strip() or None
+
     content = await document.read()
 
     # Build a safe, unique object name
@@ -156,6 +165,8 @@ async def upload_document(
         language=detected_language,
         academic_year=academic_year or None,
         term=term or None,
+        paper_type=detected_paper_type,
+        chapter=detected_chapter,
         file_path="",          # filled in after MinIO upload
         file_name=document.filename,
         file_type=ext,
@@ -274,11 +285,14 @@ async def get_stats(
 ):
     stats_sql = text("""
         SELECT
-            COUNT(DISTINCT d.id)                                     AS total_documents,
-            COUNT(DISTINCT d.id) FILTER (WHERE d.is_ingested = true) AS ingested_documents,
-            COUNT(DISTINCT dc.id)                                    AS total_chunks,
-            COUNT(DISTINCT d.subject)                                AS subjects_covered,
-            COUNT(DISTINCT d.class_level)                            AS class_levels
+            COUNT(DISTINCT d.id)                                          AS total_documents,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.is_ingested = true)      AS ingested_documents,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.document_type = 'exam')  AS question_papers,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.document_type != 'exam'
+                                          OR d.document_type IS NULL)     AS books,
+            COUNT(DISTINCT dc.id)                                         AS total_chunks,
+            COUNT(DISTINCT d.subject)                                     AS subjects_covered,
+            COUNT(DISTINCT d.class_level)                                 AS class_levels
         FROM documents d
         LEFT JOIN document_chunks dc ON dc.document_id = d.id
     """)

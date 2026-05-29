@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -11,6 +11,19 @@ from models.models import User, Assignment, Submission, Notification
 from services.ai_service import generate_assignment_content
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
+
+
+def _parse_date(value):
+    """Coerce a date input into a datetime.date (or None). Accepts '' / None,
+    'YYYY-MM-DD', or an ISO datetime string. Raises 400 on a malformed value."""
+    if not value:
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid due_date '{value}'. Expected YYYY-MM-DD.")
 
 
 class CreateAssignmentRequest(BaseModel):
@@ -69,7 +82,26 @@ async def get_assignments(
         sub_map = {s.assignment_id: s.to_dict() for s in subs}
         return [{**a.to_dict(), "my_submission": sub_map.get(a.id)} for a in assignments]
 
-    return [a.to_dict() for a in assignments]
+    # teacher / admin: attach each assignment's submissions (with student names)
+    # so the dashboard counts work and the submissions can be reviewed & graded.
+    assignment_ids = [a.id for a in assignments]
+    by_assignment: dict[str, list[dict]] = {}
+    if assignment_ids:
+        sub_result = await db.execute(
+            select(Submission).where(Submission.assignment_id.in_(assignment_ids))
+        )
+        subs = sub_result.scalars().all()
+        student_ids = {s.student_id for s in subs}
+        names: dict[str, str] = {}
+        if student_ids:
+            st_result = await db.execute(select(User).where(User.id.in_(student_ids)))
+            names = {u.id: u.name for u in st_result.scalars().all()}
+        for s in subs:
+            d = s.to_dict()
+            d["student_name"] = names.get(s.student_id, "Student")
+            by_assignment.setdefault(s.assignment_id, []).append(d)
+
+    return [{**a.to_dict(), "submissions": by_assignment.get(a.id, [])} for a in assignments]
 
 
 @router.get("/{assignment_id}")
@@ -108,7 +140,7 @@ async def create_assignment(
     assignment = Assignment(
         title=body.title, description=body.description, subject=body.subject,
         class_name=body.class_name, teacher_id=user.id,
-        due_date=body.due_date, assignment_type=body.assignment_type,
+        due_date=_parse_date(body.due_date), assignment_type=body.assignment_type,
         max_marks=body.max_marks, instructions=body.instructions,
     )
     db.add(assignment)
@@ -146,8 +178,11 @@ async def update_assignment(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     for key, val in body.items():
-        if hasattr(assignment, key) and key not in ("id", "created_at"):
-            setattr(assignment, key, val)
+        if not hasattr(assignment, key) or key in ("id", "created_at"):
+            continue
+        if key == "due_date":
+            val = _parse_date(val)
+        setattr(assignment, key, val)
 
     await db.commit()
     await db.refresh(assignment)
@@ -179,11 +214,11 @@ async def generate_with_ai(
     db: AsyncSession = Depends(get_db),
 ):
     try:
-        content = await generate_assignment_content(
+        # generate_assignment_content already returns {"content": ..., "sources": ...}
+        return await generate_assignment_content(
             {"topic": body.topic, "subject": body.subject, "class_level": body.class_level, "assignment_type": body.assignment_type},
             db,
         )
-        return {"content": content}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

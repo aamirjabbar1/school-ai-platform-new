@@ -7,9 +7,11 @@ import StudentDashboard from './pages/student/Dashboard';
 import StudentChat from './pages/student/Chat';
 import StudentAssignments from './pages/student/Assignments';
 import StudentQuestionPapers from './pages/student/QuestionPapers';
+import StudentPractice from './pages/student/Practice';
 import TeacherDashboard from './pages/teacher/Dashboard';
 import TeacherChat from './pages/teacher/Chat';
 import CreateAssignment from './pages/teacher/CreateAssignment';
+import TeacherAssignments from './pages/teacher/Assignments';
 import QuestionPapers from './pages/teacher/QuestionPapers';
 import AdminDashboard from './pages/admin/Dashboard';
 import ManageUsers from './pages/admin/ManageUsers';
@@ -53,10 +55,12 @@ export default function App() {
           <Route path="/student/chat" element={<ProtectedRoute allowedRoles={['student']}><StudentChat /></ProtectedRoute>} />
           <Route path="/student/assignments" element={<ProtectedRoute allowedRoles={['student']}><StudentAssignments /></ProtectedRoute>} />
           <Route path="/student/question-papers" element={<ProtectedRoute allowedRoles={['student']}><StudentQuestionPapers /></ProtectedRoute>} />
+          <Route path="/student/practice" element={<ProtectedRoute allowedRoles={['student']}><StudentPractice /></ProtectedRoute>} />
 
           {/* Teacher Routes */}
           <Route path="/teacher/dashboard" element={<ProtectedRoute allowedRoles={['teacher']}><TeacherDashboard /></ProtectedRoute>} />
           <Route path="/teacher/chat" element={<ProtectedRoute allowedRoles={['teacher']}><TeacherChat /></ProtectedRoute>} />
+          <Route path="/teacher/assignments" element={<ProtectedRoute allowedRoles={['teacher']}><TeacherAssignments /></ProtectedRoute>} />
           <Route path="/teacher/assignments/create" element={<ProtectedRoute allowedRoles={['teacher']}><CreateAssignment /></ProtectedRoute>} />
           <Route path="/teacher/question-papers" element={<ProtectedRoute allowedRoles={['teacher']}><QuestionPapers /></ProtectedRoute>} />
 

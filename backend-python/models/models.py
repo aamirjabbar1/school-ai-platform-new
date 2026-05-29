@@ -134,10 +134,14 @@ class Document(Base):
     document_type = Column(String(50), nullable=False, default="book")
     # language: "English" | "Urdu" | "Bilingual"
     language = Column(String(20), nullable=False, default="English")
-    # academic_year e.g. "2024-2025"
+    # academic_year e.g. "2024-2025" (for question papers this holds the exam Year)
     academic_year = Column(String(20), nullable=True)
     # term: "Term 1" | "Term 2" | "Term 3" | "Annual" | None
     term = Column(String(30), nullable=True)
+    # paper_type (question papers only): past_paper | test | midterm | final | mcqs
+    paper_type = Column(String(40), nullable=True)
+    # chapter / topic the paper or material covers (free text)
+    chapter = Column(String(300), nullable=True)
     description = Column(Text, nullable=True)
     file_path = Column(String(500), nullable=False)
     file_name = Column(String(255), nullable=False)
@@ -158,7 +162,8 @@ class Document(Base):
             "id": self.id, "title": self.title, "subject": self.subject,
             "class_level": self.class_level, "document_type": self.document_type,
             "language": self.language, "academic_year": self.academic_year,
-            "term": self.term, "description": self.description,
+            "term": self.term, "paper_type": self.paper_type, "chapter": self.chapter,
+            "description": self.description,
             "file_name": self.file_name, "file_type": self.file_type,
             "file_size": self.file_size, "uploaded_by": self.uploaded_by,
             "is_ingested": self.is_ingested, "total_chunks": self.total_chunks,

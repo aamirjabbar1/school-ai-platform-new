@@ -15,11 +15,13 @@ const navConfig = {
     { path: '/student/chat',           icon: MessageSquare,   label: 'AI Chatbot' },
     { path: '/student/assignments',    icon: BookOpen,        label: 'Assignments' },
     { path: '/student/question-papers', icon: FileText,       label: 'Question Papers' },
+    { path: '/student/practice',       icon: ClipboardList,   label: 'Practice & Self-Test' },
   ],
   teacher: [
     { path: '/teacher/dashboard',          icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/teacher/chat',               icon: MessageSquare,   label: 'AI Assistant' },
     { path: '/teacher/assignments/create', icon: ClipboardList,   label: 'Create Assignment' },
+    { path: '/teacher/assignments',        icon: BookOpen,        label: 'Review & Grade' },
     { path: '/teacher/question-papers',    icon: FileText,        label: 'Question Papers' },
   ],
   admin: [

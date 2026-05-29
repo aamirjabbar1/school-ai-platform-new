@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import { questionPaperAPI } from '../../services/api';
-import { FileText, Wand2, Loader2, Eye, Trash2, Globe, EyeOff, Plus, X, CheckCircle, ChevronDown, ChevronUp, Download } from 'lucide-react';
+import { FileText, Wand2, Loader2, Eye, Trash2, Globe, EyeOff, Plus, X, CheckCircle, ChevronDown, ChevronUp, Download, Sparkles, Lightbulb, TrendingUp } from 'lucide-react';
 
 const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Computer Science', 'Physics', 'Chemistry', 'Biology'];
 const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
 const PAPER_TYPES = ['monthly_test', 'mid_term', 'final_exam', 'quiz', 'class_test'];
+const IMPORTANCE_BADGE = { high: 'badge-red', medium: 'badge-yellow', low: 'badge-gray' };
 
 export default function QuestionPapers() {
   const [papers, setPapers] = useState([]);
@@ -16,9 +17,16 @@ export default function QuestionPapers() {
   const [viewPaper, setViewPaper] = useState(null);
   const [expandedAnswers, setExpandedAnswers] = useState({});
 
+  // Important-question prediction
+  const [showPredict, setShowPredict] = useState(false);
+  const [predicting, setPredicting] = useState(false);
+  const [predictForm, setPredictForm] = useState({ subject: '', class_name: '' });
+  const [predictions, setPredictions] = useState(null);
+
   const [genForm, setGenForm] = useState({
     subject: '', class_name: '', paper_type: 'class_test',
     total_marks: 100, duration_minutes: 60, topics: '',
+    generation_mode: 'standard', use_past_papers: true,
     difficulty_distribution: { easy: 30, medium: 50, hard: 20 },
   });
 
@@ -42,11 +50,29 @@ export default function QuestionPapers() {
       });
       setPapers((prev) => [data.paper, ...prev]);
       setShowGenerator(false);
-      setGenForm({ subject: '', class_name: '', paper_type: 'class_test', total_marks: 100, duration_minutes: 60, topics: '', difficulty_distribution: { easy: 30, medium: 50, hard: 20 } });
+      setGenForm({ subject: '', class_name: '', paper_type: 'class_test', total_marks: 100, duration_minutes: 60, topics: '', generation_mode: 'standard', use_past_papers: true, difficulty_distribution: { easy: 30, medium: 50, hard: 20 } });
     } catch (e) {
-      setError(e.response?.data?.error || 'Failed to generate paper. Ensure relevant books are uploaded.');
+      setError(e.response?.data?.detail || e.response?.data?.error || 'Failed to generate paper. Ensure relevant books/papers are uploaded.');
     } finally {
       setGenerating(false);
+    }
+  };
+
+  const runPrediction = async () => {
+    if (!predictForm.subject || !predictForm.class_name) {
+      setError('Subject and class are required');
+      return;
+    }
+    setPredicting(true);
+    setError('');
+    setPredictions(null);
+    try {
+      const { data } = await questionPaperAPI.predictImportant(predictForm);
+      setPredictions(data);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Prediction failed. Upload past papers for this subject and class first.');
+    } finally {
+      setPredicting(false);
     }
   };
 
@@ -90,9 +116,14 @@ export default function QuestionPapers() {
           <h2 className="font-semibold text-gray-800">Question Papers</h2>
           <p className="text-sm text-gray-500">Generate AI-powered exam papers from your curriculum</p>
         </div>
-        <button onClick={() => setShowGenerator(true)} className="btn-primary flex items-center gap-2">
-          <Wand2 size={16} /> Generate Paper
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setShowPredict(true); setPredictions(null); }} className="btn-secondary flex items-center gap-2">
+            <Lightbulb size={16} /> Predict Important Questions
+          </button>
+          <button onClick={() => setShowGenerator(true)} className="btn-primary flex items-center gap-2">
+            <Wand2 size={16} /> Generate Paper
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -214,8 +245,39 @@ export default function QuestionPapers() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Focus Topics (comma-separated, optional)</label>
                 <input type="text" value={genForm.topics} onChange={(e) => setGen('topics', e.target.value)} className="input-field" placeholder="e.g. Photosynthesis, Cell Division, Respiration" />
               </div>
+
+              {/* Generation mode */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Generation Mode</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setGen('generation_mode', 'standard')}
+                    className={`p-2.5 rounded-lg border text-left text-xs transition-all ${genForm.generation_mode === 'standard' ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                  >
+                    <span className="font-semibold flex items-center gap-1"><Wand2 size={13} /> Standard</span>
+                    <span className="block text-gray-500 mt-0.5">From the curriculum (textbooks).</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setGen('generation_mode', 'model')}
+                    className={`p-2.5 rounded-lg border text-left text-xs transition-all ${genForm.generation_mode === 'model' ? 'border-purple-500 bg-purple-50 text-purple-800' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                  >
+                    <span className="font-semibold flex items-center gap-1"><Sparkles size={13} /> Model Paper</span>
+                    <span className="block text-gray-500 mt-0.5">Mirrors uploaded past papers.</span>
+                  </button>
+                </div>
+                {genForm.generation_mode === 'standard' && (
+                  <label className="flex items-center gap-2 mt-2 text-xs text-gray-600">
+                    <input type="checkbox" checked={genForm.use_past_papers} onChange={(e) => setGen('use_past_papers', e.target.checked)} />
+                    Use uploaded past papers as a style &amp; difficulty reference
+                  </label>
+                )}
+              </div>
+
               <div className="p-3 bg-amber-50 rounded-lg text-xs text-amber-700 border border-amber-200">
                 ⚠️ Ensure relevant books/materials for this subject and class are uploaded in the Knowledge Base before generating.
+                {genForm.generation_mode === 'model' && ' Model Paper mode requires past papers (document type: Question Paper) for this subject and class.'}
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setShowGenerator(false)} className="btn-secondary flex-1">Cancel</button>
@@ -292,6 +354,69 @@ export default function QuestionPapers() {
                     )}
                   </div>
                 ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Predict Important Questions Modal */}
+      {showPredict && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-4">
+            <div className="p-5 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Lightbulb size={18} className="text-amber-500" />
+                <h2 className="font-bold text-gray-900">Predict Important Questions</h2>
+              </div>
+              <button onClick={() => { setShowPredict(false); setPredictions(null); }} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-gray-500">The AI analyses all uploaded past papers for this subject and class to predict the questions most likely to appear.</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
+                  <select value={predictForm.subject} onChange={(e) => setPredictForm((f) => ({ ...f, subject: e.target.value }))} className="input-field">
+                    <option value="">Select</option>
+                    {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Class *</label>
+                  <select value={predictForm.class_name} onChange={(e) => setPredictForm((f) => ({ ...f, class_name: e.target.value }))} className="input-field">
+                    <option value="">Select</option>
+                    {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <button onClick={runPrediction} disabled={predicting} className="btn-primary w-full flex items-center justify-center gap-2">
+                {predicting ? <><Loader2 size={16} className="animate-spin" /> Analysing past papers…</> : <><TrendingUp size={16} /> Predict</>}
+              </button>
+
+              {predictions && (
+                <div className="space-y-3 max-h-[55vh] overflow-y-auto pt-1">
+                  {predictions.summary && (
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">{predictions.summary}</div>
+                  )}
+                  {(predictions.predictions || []).length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-2">No predictions returned.</p>
+                  ) : (
+                    predictions.predictions.map((p, i) => (
+                      <div key={i} className="border border-gray-200 rounded-lg p-3">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="badge-blue">{p.topic}</span>
+                          <span className={IMPORTANCE_BADGE[p.importance] || 'badge-gray'}>{p.importance} priority</span>
+                          {p.frequency && <span className="text-xs text-gray-400">{p.frequency}</span>}
+                        </div>
+                        <p className="text-sm font-medium text-gray-800">{p.question}</p>
+                        {p.rationale && <p className="text-xs text-gray-500 mt-1">{p.rationale}</p>}
+                      </div>
+                    ))
+                  )}
+                  {predictions.sources?.length > 0 && (
+                    <p className="text-xs text-gray-400">Based on: {predictions.sources.join(', ')}</p>
+                  )}
+                </div>
               )}
             </div>
           </div>

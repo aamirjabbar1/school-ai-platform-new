@@ -7,7 +7,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.database import get_db
 from middleware.auth import get_current_user, require_roles
 from models.models import User, QuestionPaper
-from services.ai_service import generate_question_paper
+from services.ai_service import (
+    generate_question_paper,
+    predict_important_questions,
+    generate_practice_test,
+    grade_self_assessment,
+)
 from services.pdf_service import build_question_paper_pdf
 
 router = APIRouter(prefix="/question-papers", tags=["question-papers"])
@@ -21,6 +26,29 @@ class GeneratePaperRequest(BaseModel):
     duration_minutes: int = 60
     topics: list[str] = []
     difficulty_distribution: dict = {"easy": 30, "medium": 50, "hard": 20}
+    # "standard" builds from the curriculum; "model" mirrors uploaded past papers.
+    generation_mode: str = "standard"
+    use_past_papers: bool = True
+
+
+class PredictImportantRequest(BaseModel):
+    subject: str
+    class_name: str
+    paper_type: str | None = None
+
+
+class GeneratePracticeRequest(BaseModel):
+    subject: str
+    class_name: str
+    topics: list[str] = []
+    num_questions: int = 10
+    difficulty: str = "mixed"
+
+
+class GradePracticeRequest(BaseModel):
+    questions: list[dict]
+    answer_key: list[dict]
+    answers: dict
 
 
 class CreatePaperRequest(BaseModel):
@@ -127,17 +155,23 @@ async def generate_paper(
     user: User = Depends(require_roles("teacher", "admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await generate_question_paper({
-        "subject": body.subject,
-        "class_level": body.class_name,
-        "paper_type": body.paper_type,
-        "total_marks": body.total_marks,
-        "duration_minutes": body.duration_minutes,
-        "topics": body.topics,
-        "difficulty_distribution": body.difficulty_distribution,
-    }, db)
+    try:
+        result = await generate_question_paper({
+            "subject": body.subject,
+            "class_level": body.class_name,
+            "paper_type": body.paper_type,
+            "total_marks": body.total_marks,
+            "duration_minutes": body.duration_minutes,
+            "topics": body.topics,
+            "difficulty_distribution": body.difficulty_distribution,
+            "generation_mode": body.generation_mode,
+            "use_past_papers": body.use_past_papers,
+        }, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-    title = f"{body.paper_type.replace('_', ' ').upper()} - {body.subject} ({body.class_name})"
+    prefix = "MODEL PAPER" if body.generation_mode == "model" else body.paper_type.replace('_', ' ').upper()
+    title = f"{prefix} - {body.subject} ({body.class_name})"
     paper = QuestionPaper(
         title=title, subject=body.subject, class_name=body.class_name,
         teacher_id=user.id, paper_type=body.paper_type,
@@ -154,6 +188,62 @@ async def generate_paper(
         "formatted_paper": result["paper_data"],
         "sources_used": result["sources"],
     }
+
+
+# ─── AI exam suite (past-paper-powered) ───────────────────────────────────────
+
+@router.post("/predict-important")
+async def predict_important(
+    body: PredictImportantRequest,
+    user: User = Depends(require_roles("teacher", "admin")),
+):
+    """Analyse uploaded past papers and predict the most likely exam questions."""
+    try:
+        return await predict_important_questions(
+            subject=body.subject,
+            class_level=body.class_name,
+            paper_type=body.paper_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/practice/generate")
+async def practice_generate(
+    body: GeneratePracticeRequest,
+    user: User = Depends(get_current_user),
+):
+    """Generate a self-practice test (books + past papers). Available to students too."""
+    # Students always practise content for their own class level.
+    class_level = user.class_name if user.role == "student" and user.class_name else body.class_name
+    try:
+        return await generate_practice_test(
+            subject=body.subject,
+            class_level=class_level,
+            topics=body.topics,
+            num_questions=max(1, min(body.num_questions, 30)),
+            difficulty=body.difficulty,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/practice/grade")
+async def practice_grade(
+    body: GradePracticeRequest,
+    user: User = Depends(get_current_user),
+):
+    """Grade a student's practice answers against the model key (self-assessment)."""
+    if not body.questions:
+        raise HTTPException(status_code=400, detail="No questions to grade")
+    try:
+        return await grade_self_assessment(
+            questions=body.questions,
+            answer_key=body.answer_key,
+            student_answers=body.answers or {},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post("")

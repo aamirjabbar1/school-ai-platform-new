@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
-import { assignmentAPI, chatAPI } from '../../services/api';
-import { BookOpen, Send, Bot, Loader2, Upload, CheckCircle, Clock, X, Eye } from 'lucide-react';
+import { assignmentAPI } from '../../services/api';
+import Markdown from '../../components/Markdown';
+import { BookOpen, Send, Loader2, Upload, CheckCircle, Clock, X, Eye } from 'lucide-react';
 
 const STATUS_BADGE = {
   graded: 'badge-green',
@@ -15,8 +16,6 @@ export default function StudentAssignments() {
   const [selected, setSelected] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitForm, setSubmitForm] = useState({ content: '', file: null });
-  const [aiGenerating, setAiGenerating] = useState(false);
-  const [aiContent, setAiContent] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -32,45 +31,6 @@ export default function StudentAssignments() {
     return true;
   });
 
-  const generateAIAnswer = async () => {
-    if (!selected) return;
-    setAiGenerating(true);
-    setAiContent('');
-    try {
-      const response = await chatAPI.sendMessage({
-        message: `Please help me with this assignment:\n\nTitle: ${selected.title}\n\nDescription: ${selected.description}\n\nInstructions: ${selected.instructions || 'Complete the assignment as described.'}\n\nSubject: ${selected.subject}\n\nPlease provide a well-structured, detailed response.`,
-        subject: selected.subject,
-      });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let full = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === 'chunk') {
-                full += data.content;
-                setAiContent(full);
-              }
-            } catch {}
-          }
-        }
-      }
-      setSubmitForm((f) => ({ ...f, content: full }));
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setAiGenerating(false);
-    }
-  };
-
   const handleSubmit = async () => {
     if (!selected) return;
     setSubmitting(true);
@@ -78,12 +38,11 @@ export default function StudentAssignments() {
       await assignmentAPI.submit(selected.id, {
         content: submitForm.content,
         file: submitForm.file,
-        ai_generated: !!aiContent && submitForm.content === aiContent,
+        ai_generated: false,
       });
       setSuccessMsg('Assignment submitted successfully!');
       setSelected(null);
       setSubmitForm({ content: '', file: null });
-      setAiContent('');
       const { data } = await assignmentAPI.getAll();
       setAssignments(data);
       setTimeout(() => setSuccessMsg(''), 3000);
@@ -180,34 +139,28 @@ export default function StudentAssignments() {
                 <h2 className="font-bold text-gray-900">{selected.title}</h2>
                 <p className="text-sm text-gray-500">{selected.subject} • {selected.max_marks} marks</p>
               </div>
-              <button onClick={() => { setSelected(null); setAiContent(''); }} className="text-gray-400 hover:text-gray-600 p-1">
+              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 p-1">
                 <X size={20} />
               </button>
             </div>
             <div className="p-5 space-y-4">
-              <div className="p-3 bg-blue-50 rounded-lg text-sm text-blue-800">
-                <strong>Instructions:</strong> {selected.description}
-                {selected.instructions && <p className="mt-1">{selected.instructions}</p>}
+              <div className="p-3 bg-blue-50 rounded-lg text-sm text-gray-800 border border-blue-100">
+                <Markdown>{selected.description}</Markdown>
+                {selected.instructions && (
+                  <p className="mt-2 pt-2 border-t border-blue-100 text-gray-600">
+                    <span className="font-semibold">Additional instructions:</span> {selected.instructions}
+                  </p>
+                )}
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-700">Your Answer</label>
-                  <button
-                    onClick={generateAIAnswer}
-                    disabled={aiGenerating}
-                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 rounded-lg hover:bg-purple-100 disabled:opacity-50"
-                  >
-                    {aiGenerating ? <Loader2 size={12} className="animate-spin" /> : <Bot size={12} />}
-                    {aiGenerating ? 'Generating...' : 'Generate with AI'}
-                  </button>
-                </div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Your Answer</label>
                 <textarea
                   value={submitForm.content}
                   onChange={(e) => setSubmitForm({ ...submitForm, content: e.target.value })}
                   rows={10}
                   className="input-field resize-none"
-                  placeholder="Write your answer here, or use AI to generate one..."
+                  placeholder="Write your answer here..."
                 />
               </div>
 
@@ -224,7 +177,7 @@ export default function StudentAssignments() {
               </div>
 
               <div className="flex gap-3 pt-2">
-                <button onClick={() => { setSelected(null); setAiContent(''); }} className="btn-secondary flex-1">
+                <button onClick={() => setSelected(null)} className="btn-secondary flex-1">
                   Cancel
                 </button>
                 <button
