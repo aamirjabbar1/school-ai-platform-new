@@ -13,6 +13,17 @@ jobs:
     environment: prod   # pulls secrets from the "prod" GitHub Environment
 
     steps:
+
+      - name: Test SSH connection
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          debug: true
+          host: 167.235.202.139
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: 22
+          script: echo "SSH works"
+
       # ── 1. Checkout ──────────────────────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
