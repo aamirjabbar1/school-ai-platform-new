@@ -153,26 +153,7 @@ export default function Login() {
               </button>
             </form>
 
-            <div className="mt-6 pt-5 border-t border-gray-100">
-              <p className="text-xs text-gray-500 text-center mb-3">Demo Credentials</p>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                {[
-                  { role: 'Admin', id: 'admin001', pass: 'admin123', color: 'purple' },
-                  { role: 'Teacher', id: 'TCH001', pass: 'teacher123', color: 'emerald' },
-                  { role: 'Student', id: 'STU001', pass: 'student123', color: 'blue' },
-                ].map(({ role, id, pass, color }) => (
-                  <button
-                    key={role}
-                    onClick={() => setForm({ login_id: id, password: pass })}
-                    className={`p-2 rounded-lg border text-left transition-colors
-                      bg-${color}-50 border-${color}-100 hover:bg-${color}-100 text-${color}-700`}
-                  >
-                    <div className="font-semibold">{role}</div>
-                    <div className="text-xs opacity-70">{id}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
+
           </div>
         </div>
       </div>

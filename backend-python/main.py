@@ -39,20 +39,19 @@ async def create_default_admin():
     try:
         async with async_session() as db:
             from sqlalchemy import text
-            result = await db.execute(text("SELECT id FROM users WHERE login_id = 'admin001'"))
+            result = await db.execute(text("SELECT id FROM users WHERE email = 'admin@lss.edu.pk'"))
             if not result.first():
                 admin = User(
                     name="System Administrator",
-                    login_id="admin001",
-                    email="admin@school.edu",
-                    password_hash=hash_password("admin123"),
+                    login_id="admin@lss.edu.pk",
+                    email="admin@lss.edu.pk",
+                    password_hash=hash_password("Wapsi4731@9797"),
                     role="admin",
                     is_active=True,
                 )
                 db.add(admin)
                 await db.commit()
-                print("[OK] Default admin created: admin001 / admin123")
-                print("[!]  IMPORTANT: Change the default admin password immediately!\n")
+                print("[OK] Default admin seeded.")
     except Exception as e:
         print(f"[WARN] Default admin creation (non-fatal): {e}")
 
