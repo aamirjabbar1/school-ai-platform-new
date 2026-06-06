@@ -10,72 +10,39 @@ jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    environment: prod   # pulls secrets from the "prod" GitHub Environment
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Test SSH connection
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
+        env:
+          BACKEND_VARS: ${{ secrets.BACKEND_VARIABLES }}
+          FRONTEND_VARS: ${{ secrets.FRONTEND_VARIABLES }}
         with:
-          debug: true
           host: 167.235.202.139
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
-          script: echo "SSH works"
-
-      # ── 1. Checkout ──────────────────────────────────────────────────────────
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ── 2. Write root .env (backend_variables) ───────────────────────────────
-      - name: Write root .env
-        run: |
-          cat > .env << 'EOF'
-          ${{ secrets.backend_variables }}
-          EOF
-
-      # ── 3. Write frontend/.env (frontend_variables) ──────────────────────────
-      - name: Write frontend/.env
-        run: |
-          mkdir -p frontend
-          cat > frontend/.env << 'EOF'
-          ${{ secrets.frontend_variables }}
-          EOF
-
-      # ── 4. Copy env files + docker-compose to VPS, then deploy ───────────────
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: 167.235.202.139
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_PORT || 22 }}
           envs: BACKEND_VARS,FRONTEND_VARS
-          script_stop: true
           script: |
             set -e
 
             APP_DIR="/mnt/HC_Volume_105938413/apps/main-lss/school-ai-platform-new"
-
             cd "$APP_DIR"
 
             echo "==> Pulling latest code"
             git pull origin main
 
             echo "==> Writing root .env"
-            cat > .env << 'ENVEOF'
-            ${{ secrets.backend_variables }}
-            ENVEOF
+            printf '%s' "$BACKEND_VARS" > .env
 
             echo "==> Writing frontend/.env"
             mkdir -p frontend
-            cat > frontend/.env << 'ENVEOF'
-            ${{ secrets.frontend_variables }}
-            ENVEOF
+            printf '%s' "$FRONTEND_VARS" > frontend/.env
 
             echo "==> Running docker compose"
-            docker compose pull --quiet || true
             docker compose up --build -d --remove-orphans
 
             echo "==> Pruning unused images"
