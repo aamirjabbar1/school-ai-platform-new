@@ -32,7 +32,7 @@ jobs:
       - name: Write root .env
         run: |
           cat > .env << 'EOF'
-          ${{ variables.backend_variables }}
+          ${{ vars.backend_variables }}
           EOF
 
       # ── 3. Write frontend/.env (frontend_variables) ──────────────────────────
@@ -40,15 +40,15 @@ jobs:
         run: |
           mkdir -p frontend
           cat > frontend/.env << 'EOF'
-          ${{ variables.frontend_variables }}
+          ${{ vars.frontend_variables }}
           EOF
 
       # ── 4. Copy env files + docker-compose to VPS, then deploy ───────────────
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
-          BACKEND_VARS: ${{ variables.backend_variables }}
-          FRONTEND_VARS: ${{ variables.frontend_variables }}
+          BACKEND_VARS: ${{ vars.backend_variables }}
+          FRONTEND_VARS: ${{ vars.frontend_variables }}
         with:
           host: 167.235.202.139
           username: ${{ secrets.VPS_USER }}
