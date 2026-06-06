@@ -98,7 +98,13 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[
+        FRONTEND_URL,
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "https://lssbot.net",
+        "https://www.lssbot.net",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
