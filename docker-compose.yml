@@ -257,7 +257,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_SCHOOL_NAME: ${SCHOOL_NAME:-My School}
-        VITE_API_URL: /api
+        VITE_API_URL: https://api.lssbot.net
     container_name: school_ai_frontend
     restart: unless-stopped
     ports:
@@ -277,25 +277,6 @@ services:
     depends_on:
       milvus:
         condition: service_healthy
-    networks:
-      - school_network
-
-  # ─── Nginx Reverse Proxy ──────────────────────────────────────────────────────
-  nginx:
-    image: nginx:stable-alpine
-    container_name: school_ai_nginx
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-      frontend:
-        condition: service_started
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
     networks:
       - school_network
 
