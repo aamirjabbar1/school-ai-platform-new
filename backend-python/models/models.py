@@ -27,6 +27,7 @@ class User(Base):
     class_name = Column(String(50), nullable=True)
     subjects = Column(JSON, nullable=True, default=list)
     is_active = Column(Boolean, default=True)
+    must_change_password = Column(Boolean, default=False, nullable=False)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -43,6 +44,7 @@ class User(Base):
             "id": self.id, "name": self.name, "login_id": self.login_id,
             "email": self.email, "role": self.role, "class_name": self.class_name,
             "subjects": self.subjects or [], "is_active": self.is_active,
+            "must_change_password": self.must_change_password,
             "last_login": self.last_login.isoformat() if self.last_login else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,

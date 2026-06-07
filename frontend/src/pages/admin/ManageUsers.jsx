@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import { adminAPI } from '../../services/api';
-import { Plus, Search, Edit2, Trash2, UserCheck, UserX, X, Loader2, Users, Download, Upload, FileText, CheckCircle } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, UserCheck, UserX, X, Loader2, Users, Download, Upload, FileText, CheckCircle, KeyRound, Eye, EyeOff } from 'lucide-react';
 
 const ROLES = ['student', 'teacher', 'admin'];
 const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
@@ -22,6 +22,10 @@ export default function ManageUsers() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [resetTarget, setResetTarget] = useState(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetSaving, setResetSaving] = useState(false);
+  const [showResetPass, setShowResetPass] = useState(false);
 
   const [form, setForm] = useState({
     name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', subjects: [],
@@ -52,10 +56,36 @@ export default function ManageUsers() {
     setEditUser(user);
     setForm({
       name: user.name, login_id: user.login_id, email: user.email || '',
-      password: '', role: user.role, class_name: user.class_name || '', subjects: user.subjects || [],
+      role: user.role, class_name: user.class_name || '', subjects: user.subjects || [],
     });
     setError('');
     setShowModal(true);
+  };
+
+  const openResetPassword = (user) => {
+    setResetTarget(user);
+    setResetPassword('');
+    setShowResetPass(false);
+    setError('');
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetPassword || resetPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+    setResetSaving(true);
+    setError('');
+    try {
+      await adminAPI.resetPassword(resetTarget.id, resetPassword);
+      setSuccess(`Password reset for ${resetTarget.name}`);
+      setResetTarget(null);
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) {
+      setError(e.response?.data?.detail || 'Failed to reset password');
+    } finally {
+      setResetSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -67,6 +97,8 @@ export default function ManageUsers() {
       setError('Password is required for new users');
       return;
     }
+    // Strip password from edit payload — password changes go through reset-password endpoint
+    if (editUser) delete form.password;
     setSaving(true);
     setError('');
     try {
@@ -245,8 +277,11 @@ export default function ManageUsers() {
                     </td>
                     <td className="p-4">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openEdit(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600">
+                        <button onClick={() => openEdit(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600" title="Edit user">
                           <Edit2 size={14} />
+                        </button>
+                        <button onClick={() => openResetPassword(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-orange-600" title="Reset password">
+                          <KeyRound size={14} />
                         </button>
                         <button onClick={() => toggleActive(user)} className={`p-1.5 rounded hover:bg-gray-100 ${user.is_active ? 'text-gray-400 hover:text-red-600' : 'text-gray-400 hover:text-green-600'}`}>
                           {user.is_active ? <UserX size={14} /> : <UserCheck size={14} />}
@@ -358,10 +393,12 @@ export default function ManageUsers() {
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Password {editUser ? '(leave blank to keep)' : '*'}</label>
-                <input type="password" value={form.password} onChange={(e) => setF('password', e.target.value)} className="input-field" placeholder={editUser ? 'New password (optional)' : 'Set password'} />
-              </div>
+              {!editUser && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                  <input type="password" value={form.password} onChange={(e) => setF('password', e.target.value)} className="input-field" placeholder="Set initial password" />
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                 <input type="email" value={form.email} onChange={(e) => setF('email', e.target.value)} className="input-field" placeholder="Optional email" />
@@ -403,6 +440,52 @@ export default function ManageUsers() {
                 <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
                   {saving ? <Loader2 size={16} className="animate-spin" /> : null}
                   {editUser ? 'Update' : 'Create'} User
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Reset Password Modal */}
+      {resetTarget && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="p-5 border-b flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-gray-900">Reset Password</h2>
+                <p className="text-sm text-gray-500 mt-0.5">{resetTarget.name} · {resetTarget.login_id}</p>
+              </div>
+              <button onClick={() => setResetTarget(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
+              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New Password *</label>
+                <div className="relative">
+                  <input
+                    type={showResetPass ? 'text' : 'password'}
+                    value={resetPassword}
+                    onChange={(e) => setResetPassword(e.target.value)}
+                    className="input-field pr-10"
+                    placeholder="Min. 6 characters"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowResetPass(!showResetPass)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    {showResetPass ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => setResetTarget(null)} className="btn-secondary flex-1">Cancel</button>
+                <button onClick={handleResetPassword} disabled={resetSaving} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                  {resetSaving ? <Loader2 size={16} className="animate-spin" /> : <KeyRound size={16} />}
+                  Reset Password
                 </button>
               </div>
             </div>

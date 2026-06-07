@@ -32,6 +32,7 @@ export const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
   getMe: () => api.get('/auth/me'),
   changePassword: (data) => api.put('/auth/change-password', data),
+  forceChangePassword: (newPassword) => api.put('/auth/force-change-password', { new_password: newPassword }),
 };
 
 // ─── CHAT ─────────────────────────────────────────────────────────────────────
@@ -116,6 +117,7 @@ export const adminAPI = {
   createUser: (data) => api.post('/admin/users', data),
   bulkCreateUsers: (data) => api.post('/admin/users/bulk', data),
   updateUser: (id, data) => api.put(`/admin/users/${id}`, data),
+  resetPassword: (id, newPassword) => api.post(`/admin/users/${id}/reset-password`, { new_password: newPassword }),
   deleteUser: (id) => api.delete(`/admin/users/${id}`),
   broadcast: (data) => api.post('/admin/broadcast', data),
   importTeachers: (file) => {

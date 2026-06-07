@@ -34,7 +34,11 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    sessionStorage.clear();
     setUser(null);
+    // Replace the current history entry so the back button cannot return
+    // to a protected page after logging out.
+    window.location.replace('/login');
   };
 
   return (

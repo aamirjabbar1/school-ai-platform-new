@@ -36,6 +36,10 @@ class BulkCreateRequest(BaseModel):
     users: list[dict]
 
 
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+
 class BroadcastRequest(BaseModel):
     title: str
     message: str
@@ -136,10 +140,11 @@ async def create_user(
 
     new_user = User(
         name=body.name, login_id=body.login_id,
-        email=body.email or None,        # coerce "" → None to avoid UNIQUE collision
+        email=body.email or None,
         password_hash=hash_password(body.password), role=body.role,
         class_name=body.class_name or None,
         subjects=body.subjects, is_active=True,
+        must_change_password=(body.role != "admin"),
     )
     db.add(new_user)
     await db.commit()
@@ -203,6 +208,27 @@ async def update_user(
     await db.commit()
     await db.refresh(target)
     return target.to_dict()
+
+
+@router.post("/users/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    body: ResetPasswordRequest,
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    if not body.new_password or len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    target = result.scalar_one_or_none()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    target.password_hash = hash_password(body.new_password)
+    target.must_change_password = True
+    await db.commit()
+    return {"message": f"Password reset successfully for {target.name}"}
 
 
 @router.delete("/users/{user_id}")

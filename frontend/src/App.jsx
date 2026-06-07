@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Pages
 import Login from './pages/Login';
+import ForceChangePassword from './pages/ForceChangePassword';
 import StudentDashboard from './pages/student/Dashboard';
 import StudentChat from './pages/student/Chat';
 import StudentAssignments from './pages/student/Assignments';
@@ -28,6 +29,7 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
     </div>
   );
   if (!user) return <Navigate to="/login" replace />;
+  if (user.must_change_password) return <Navigate to="/change-password" replace />;
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return <Navigate to={`/${user.role}/dashboard`} replace />;
   }
@@ -48,6 +50,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/change-password" element={<ForceChangePassword />} />
           <Route path="/" element={<RoleRedirect />} />
 
           {/* Student Routes */}

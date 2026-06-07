@@ -20,7 +20,7 @@ export default function Login() {
     try {
       const user = await login(form);
       const routes = { student: '/student/dashboard', teacher: '/teacher/dashboard', admin: '/admin/dashboard' };
-      navigate(routes[user.role] || '/');
+      navigate(routes[user.role] || '/', { replace: true });
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed. Please check your credentials.');
     } finally {
