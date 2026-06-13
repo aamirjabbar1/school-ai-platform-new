@@ -5,7 +5,7 @@ import { chatAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import {
   Send, Bot, User, BookOpen, Loader2, Trash2, Plus, X,
-  Brain, AlertTriangle, Globe, Square,
+  Brain, AlertTriangle, Globe, Square, ChevronDown, Sparkles,
 } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -31,6 +31,48 @@ function normalizeSources(raw) {
     kb_sources:    raw.kb_sources    || [],
     web_searches:  raw.web_searches  || [],
   };
+}
+
+// ─── Extended-thinking (reasoning) trace ─────────────────────────────────────
+function ThinkingTrace({ text, active }) {
+  const [open, setOpen] = useState(false);
+  // Auto-expand while Claude is actively thinking, auto-collapse once done.
+  useEffect(() => { setOpen(active); }, [active]);
+  if (!text && !active) return null;
+  return (
+    <div className="w-full max-w-full">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={`group relative flex items-center gap-2 text-xs font-semibold rounded-full pl-2.5 pr-3 py-1.5 transition-all duration-300 ${
+          active
+            ? 'text-white shadow-md shadow-indigo-300/50 bg-gradient-to-r from-indigo-500 via-violet-500 to-sky-500 bg-[length:200%_100%] animate-[shimmer_2.5s_linear_infinite]'
+            : 'text-indigo-600 bg-indigo-50 ring-1 ring-inset ring-indigo-100 hover:bg-indigo-100'
+        }`}
+      >
+        <Sparkles
+          size={13}
+          className={active ? 'text-white animate-[spin_3s_linear_infinite]' : 'text-indigo-500'}
+        />
+        <span className="tracking-tight">{active ? 'Thinking' : 'Thought process'}</span>
+        <ChevronDown
+          size={13}
+          className={`transition-transform duration-300 ${open ? 'rotate-180' : ''} ${active ? 'text-white/80' : 'text-indigo-400'}`}
+        />
+      </button>
+      <div className={`grid transition-all duration-300 ease-out ${open ? 'grid-rows-[1fr] opacity-100 mt-2' : 'grid-rows-[0fr] opacity-0'}`}>
+        <div className="overflow-hidden">
+          <div className="relative rounded-xl bg-gradient-to-br from-indigo-50/80 to-sky-50/60 ring-1 ring-inset ring-indigo-100/80 px-3.5 py-2.5">
+            <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-gradient-to-b from-indigo-400 via-violet-400 to-sky-400" />
+            <p className="text-[12.5px] leading-relaxed text-slate-500 whitespace-pre-wrap break-words pl-2">
+              {text || (active ? 'Reasoning…' : '')}
+              {active && <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle rounded-sm bg-indigo-400 animate-pulse" />}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── Web search activity ──────────────────────────────────────────────────────
@@ -138,6 +180,9 @@ export default function ChatInterface({ role = 'student' }) {
       id: assistantMsgId,
       role: 'assistant',
       content: '',
+      thinking: '',
+      segments: {},
+      intermediateSegs: [],
       web_searches: [],
       kb_sources: [],
       streaming: true,
@@ -180,10 +225,51 @@ export default function ChatInterface({ role = 'student' }) {
             // session confirmation; nothing to render
             break;
 
-          case 'text':
+          case 'text': {
+            // data = { text, seg }. Accumulate per segment; the answer is the
+            // concatenation of segments that did NOT call tools.
+            const { text: chunk = '', seg = 0 } = data;
+            setMessages((prev) => prev.map((m) => {
+              if (m.id !== assistantMsgId) return m;
+              const segments = { ...(m.segments || {}) };
+              segments[seg] = (segments[seg] || '') + chunk;
+              const interm = m.intermediateSegs || [];
+              const content = Object.keys(segments)
+                .map(Number).sort((a, b) => a - b)
+                .filter((s) => !interm.includes(s))
+                .map((s) => segments[s]).join('');
+              return { ...m, segments, content };
+            }));
+            break;
+          }
+
+          case 'intermediate': {
+            // This segment was a tool-calling step — its text is reasoning, not
+            // the answer. Move it into the thinking panel and drop from content.
+            const seg = data.seg ?? 0;
+            setMessages((prev) => prev.map((m) => {
+              if (m.id !== assistantMsgId) return m;
+              const interm = m.intermediateSegs?.includes(seg)
+                ? m.intermediateSegs
+                : [...(m.intermediateSegs || []), seg];
+              const segments = m.segments || {};
+              const narration = (segments[seg] || '').trim();
+              const thinking = narration
+                ? `${m.thinking ? m.thinking.replace(/\s*$/, '') + '\n' : ''}${narration}`
+                : (m.thinking || '');
+              const content = Object.keys(segments)
+                .map(Number).sort((a, b) => a - b)
+                .filter((s) => !interm.includes(s))
+                .map((s) => segments[s]).join('');
+              return { ...m, intermediateSegs: interm, thinking, content };
+            }));
+            break;
+          }
+
+          case 'thinking':
             setMessages((prev) => prev.map((m) =>
               m.id === assistantMsgId
-                ? { ...m, content: m.content + data.text }
+                ? { ...m, thinking: (m.thinking || '') + data.text }
                 : m
             ));
             break;
@@ -332,13 +418,13 @@ export default function ChatInterface({ role = 'student' }) {
           </div>
 
           {memoryCount > 0 && (
-            <div className="flex items-center gap-2 px-2 py-1.5 bg-purple-50 rounded-lg border border-purple-100">
-              <Brain size={14} className="text-purple-600 shrink-0" />
-              <span className="text-xs text-purple-700 flex-1">{memoryCount} messages remembered</span>
-              <button onClick={() => setShowClearConfirm(true)} className="text-purple-400 hover:text-red-500 transition-colors" title="Clear all memory">
-                <Trash2 size={12} />
-              </button>
-            </div>
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              className="flex items-center gap-1.5 self-start text-[11px] text-gray-400 hover:text-red-500 transition-colors"
+              title="Clear all chat history"
+            >
+              <Trash2 size={12} /> Clear history
+            </button>
           )}
 
           {showClearConfirm && (
@@ -402,11 +488,6 @@ export default function ChatInterface({ role = 'student' }) {
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-green-500" />
                 <span className="font-semibold text-sm text-gray-800">AI Academic Assistant</span>
-                {memoryCount > 0 && (
-                  <span className="flex items-center gap-1 text-xs text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full">
-                    <Brain size={10} /> Memory Active
-                  </span>
-                )}
               </div>
               <p className="text-xs text-gray-500">
                 Answers grounded in your school books, with web search when needed
@@ -439,11 +520,6 @@ export default function ChatInterface({ role = 'student' }) {
               <p className="text-sm text-gray-500 max-w-xs">
                 Ask anything from your subjects. Answers are grounded in your school's curriculum.
               </p>
-              {memoryCount > 0 && (
-                <p className="text-xs text-purple-600 mt-2 flex items-center gap-1">
-                  <Brain size={12} /> I remember our previous conversations
-                </p>
-              )}
               <div className="mt-4 grid grid-cols-2 gap-2 w-full max-w-xs">
                 {['Explain photosynthesis', 'Summarize Chapter 3', 'What is algebra?', 'Create study notes'].map((q) => (
                   <button
@@ -467,12 +543,18 @@ export default function ChatInterface({ role = 'student' }) {
               </div>
 
               <div className={`max-w-[80%] flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                {/* Extended-thinking trace (reasoning, collapsible) */}
+                {msg.role === 'assistant' && (msg.thinking || (msg.streaming && !msg.content)) && (
+                  <ThinkingTrace text={msg.thinking} active={!!msg.streaming} />
+                )}
+
                 {/* Web search trace (above text, like ChatGPT) */}
                 {msg.role === 'assistant' && msg.web_searches?.length > 0 && (
                   <WebSearchTrace searches={msg.web_searches} />
                 )}
 
-                {/* Message body */}
+                {/* Message body — hidden while only thinking is streaming */}
+                {!(msg.role === 'assistant' && msg.streaming && !msg.content) && (
                 <div className={`rounded-2xl px-4 py-3 text-sm ${
                   msg.role === 'user'
                     ? 'bg-blue-600 text-white rounded-tr-sm'
@@ -482,21 +564,14 @@ export default function ChatInterface({ role = 'student' }) {
                     <p className="whitespace-pre-wrap">{msg.content}</p>
                   ) : (
                     <div className="prose-chat">
-                      {msg.streaming && !msg.content ? (
-                        <div className="flex gap-1.5 py-1">
-                          <div className="typing-dot" />
-                          <div className="typing-dot" />
-                          <div className="typing-dot" />
-                        </div>
-                      ) : (
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                      )}
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                       {msg.streaming && msg.content && (
                         <span className="inline-block w-1 h-4 bg-gray-400 animate-pulse ml-0.5" />
                       )}
                     </div>
                   )}
                 </div>
+                )}
 
               </div>
             </div>

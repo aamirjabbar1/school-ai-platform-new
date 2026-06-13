@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -10,7 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.database import get_db
 from middleware.auth import get_current_user
 from models.models import User, ChatHistory
-from services.ai_service import stream_chat_with_rag
+from services.agent_service import stream_chat_with_agent
+
+logger = logging.getLogger("agent")
 
 
 # Auto-detect subject from message content
@@ -79,6 +82,10 @@ async def send_message(
         raise HTTPException(status_code=400, detail="Message is required")
 
     session_id = body.session_id or str(uuid.uuid4())
+    logger.info(
+        "[CHAT] POST /chat/message | user=%s role=%s session=%s msg=%r",
+        getattr(user, "id", "?"), getattr(user, "role", "?"), session_id, body.message[:120],
+    )
 
     # Fetch conversation history
     result = await db.execute(
@@ -105,11 +112,32 @@ async def send_message(
         full_response = ""
         sources = []
         web_searches = []
+        assistant_saved = False
+
+        async def _save_assistant(content: str, kb_sources, searches):
+            """Persist the assistant turn. Always called exactly once per stream
+            so a failed/empty reply never leaves a dangling user message that
+            would bleed into the next query."""
+            nonlocal assistant_saved
+            if assistant_saved:
+                return
+            assistant_saved = True
+            db.add(ChatHistory(
+                user_id=user.id, session_id=session_id, role="assistant",
+                content=content or "I wasn't able to generate a response. Please try asking again.",
+                subject_context=detected_subject,
+                sources_used={
+                    "kb_sources":   kb_sources or [],
+                    "web_searches": searches or [],
+                },
+            ))
+            await db.commit()
+
         try:
             # Send session_id immediately so the client knows the session is live
             yield f"data: {json.dumps({'type': 'start', 'session_id': session_id})}\n\n"
 
-            async for event_type, data in stream_chat_with_rag(
+            async for event_type, data in stream_chat_with_agent(
                 body.message.strip(), db,
                 user_role=user.role,
                 subject=detected_subject,
@@ -119,8 +147,19 @@ async def send_message(
                 session_id=session_id,
             ):
                 if event_type == "text":
-                    full_response += data
-                    yield f"data: {json.dumps({'type': 'text', 'text': data})}\n\n"
+                    # data = {"text": str, "seg": int}. Accumulate for the
+                    # disconnect/error fallback; the clean final answer comes
+                    # from the "done" event.
+                    full_response += data.get("text", "")
+                    yield f"data: {json.dumps({'type': 'text', 'text': data.get('text', ''), 'seg': data.get('seg', 0)})}\n\n"
+
+                elif event_type == "thinking":
+                    yield f"data: {json.dumps({'type': 'thinking', 'text': data})}\n\n"
+
+                elif event_type == "intermediate":
+                    # The given segment made tool calls — its text is reasoning,
+                    # not the answer. Tell the client to reclassify it.
+                    yield f"data: {json.dumps({'type': 'intermediate', 'seg': data.get('seg', 0)})}\n\n"
 
                 elif event_type == "web_search_query":
                     yield f"data: {json.dumps({'type': 'web_search_query', 'query': data})}\n\n"
@@ -137,25 +176,32 @@ async def send_message(
                     sources = data["sources"]
 
                     # Persist assistant message + structured sources for history
-                    db.add(ChatHistory(
-                        user_id=user.id, session_id=session_id, role="assistant",
-                        content=full_response, subject_context=detected_subject,
-                        sources_used={
-                            "kb_sources":   sources,
-                            "web_searches": data.get("web_searches", []),
-                        },
-                    ))
-                    await db.commit()
+                    await _save_assistant(full_response, sources, data.get("web_searches", []))
 
                     yield f"data: {json.dumps({'type': 'done', 'session_id': session_id, 'sources': sources, 'web_searches': data.get('web_searches', []), 'context_found': data.get('context_found', False), 'usage': data.get('usage', {})})}\n\n"
 
                 elif event_type == "error":
+                    # Persist whatever text streamed so the user turn is never left
+                    # dangling, then surface the error to the client.
+                    await _save_assistant(full_response, sources, web_searches)
                     yield f"data: {json.dumps({'type': 'error', 'message': data.get('message', 'Unknown error')})}\n\n"
 
         except Exception as e:
             import traceback
             traceback.print_exc()
+            try:
+                await _save_assistant(full_response, sources, web_searches)
+            except Exception:
+                pass
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+        finally:
+            # Safety net: guarantee the assistant turn is recorded even if the
+            # client disconnected before the stream produced a terminal event.
+            if not assistant_saved and full_response.strip():
+                try:
+                    await _save_assistant(full_response, sources, web_searches)
+                except Exception:
+                    pass
 
     return StreamingResponse(
         event_stream(),

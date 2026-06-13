@@ -65,11 +65,12 @@ The user will provide curriculum content from one or more school documents along
 CRITICAL RULES:
 1. Answer school-curriculum questions PRIMARILY from the provided curriculum content. You may refer to a chapter or page naturally in prose (e.g., "as covered in Chapter 5"), but do NOT include bracketed citation markers, footnote numbers, or [Source] tags in your answer.
 2. Use the web_search tool ONLY for: current events, real-world examples, supplementary background that is NOT a school curriculum topic, or when the documents lack enough information AND the question is general knowledge. Never use web_search to override or contradict curriculum content.
-3. If the question is about a specific curriculum topic and neither the documents nor a web search yields a confident answer, respond: "I cannot find this specific information in the available school materials. Please consult your {'teacher or ' if role == 'student' else ''}the relevant textbook."
-4. Be educational, clear, and supportive. Adapt depth to the audience.
-5. Respond in the same language as the question (English or Urdu). Mathematical and scientific notation may stay in English.
-6. For mathematics, show step-by-step solutions.
-7. Stay aligned with the curriculum for grade-appropriate explanations."""
+3. When the user asks about a specific page, chapter, exercise, or question number (e.g. "what is on page 45", "explain page 45", "summarise Chapter 3"), the curriculum content provided to you IS the content from that location. Answer directly from it and mention the page or chapter naturally (e.g., "Page 45 covers..."). Do NOT claim the information is unavailable when matching content is provided.
+4. Only if the question is about a specific curriculum topic AND neither the documents nor a web search yields a confident answer, respond: "I cannot find this specific information in the available school materials. Please consult your {'teacher or ' if role == 'student' else ''}the relevant textbook."
+5. Be educational, clear, and supportive. Adapt depth to the audience.
+6. Respond in the same language as the question (English or Urdu). Mathematical and scientific notation may stay in English.
+7. For mathematics, show step-by-step solutions.
+8. Stay aligned with the curriculum for grade-appropriate explanations."""
 
     if role == "student":
         text += "\n\nSTUDENT ASSISTANCE:\n- Explain concepts clearly with examples from the curriculum\n- Break complex topics into digestible parts\n- Provide structured notes and summaries\n- Help prepare assignment answers\n- Create practice questions"
@@ -302,6 +303,40 @@ def _extract_tool_input(response, tool_name: str) -> dict | None:
     return None
 
 
+def _sanitize_history(history: list[dict]) -> list[dict]:
+    """Normalise stored conversation history into a strictly alternating,
+    non-empty user/assistant sequence ready to send to the Anthropic API.
+
+    A prior turn whose assistant reply failed to persist (error, interruption,
+    or an empty response after a long web search) leaves a dangling `user`
+    message. Sent as-is, the API merges two consecutive `user` turns and the
+    model answers the previous question before the current one. This collapses
+    consecutive same-role turns (keeping the latest), drops empty messages and
+    any leading assistant turn, and removes a trailing user turn so the freshly
+    appended user message alternates correctly.
+    """
+    cleaned: list[dict] = []
+    for m in history or []:
+        role = m.get("role")
+        content = (m.get("content") or "").strip()
+        if role not in ("user", "assistant") or not content:
+            continue
+        if cleaned and cleaned[-1]["role"] == role:
+            # Collapse consecutive same-role turns, keeping the most recent.
+            cleaned[-1] = {"role": role, "content": content}
+        else:
+            cleaned.append({"role": role, "content": content})
+
+    # Must begin with a user turn.
+    while cleaned and cleaned[0]["role"] != "user":
+        cleaned.pop(0)
+    # Drop a dangling trailing user turn (its reply was never recorded) so the
+    # new user message we append next does not create two user turns in a row.
+    while cleaned and cleaned[-1]["role"] == "user":
+        cleaned.pop()
+    return cleaned
+
+
 # ─── STREAMING CHAT WITH RAG ─────────────────────────────────────────────────
 
 async def stream_chat_with_rag(
@@ -362,10 +397,12 @@ async def stream_chat_with_rag(
         )
 
         # 3. Build messages — KB context goes inline as plain text
-        history_msgs = [
-            {"role": m["role"], "content": m["content"]}
-            for m in conversation_history[-10:]
-        ]
+        history_msgs = _sanitize_history(conversation_history[-12:])
+        # Keep the most recent turns while preserving the leading-user invariant.
+        if len(history_msgs) > 10:
+            history_msgs = history_msgs[-10:]
+            while history_msgs and history_msgs[0]["role"] != "user":
+                history_msgs.pop(0)
 
         if kb_context:
             user_text = (

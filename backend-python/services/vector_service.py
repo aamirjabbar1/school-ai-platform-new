@@ -313,3 +313,59 @@ def query_all_chunks_for_document(
     for r in results:
         r["score"] = 1.0
     return results
+
+
+# ─── Page-number lookup (direct metadata retrieval) ───────────────────────────
+
+def query_chunks_by_page(
+    page_number: int,
+    document_title: str | None = None,
+    subject: str | None = None,
+    class_level: str | None = None,
+    language: str | None = None,
+    document_type: str | None = None,
+    limit: int = 12,
+) -> list[dict]:
+    """Fetch chunks located on a specific page via scalar metadata filtering.
+
+    Page numbers are stored only as metadata (`page_number`) — the `[Page N]`
+    markers are stripped from `chunk_text` during chunking — so a question like
+    "what is on page 45" cannot be answered by ANN / BM25 search and must be
+    routed here. Returns the page's chunks in reading order.
+    """
+    col = _get_collection()
+
+    def esc(s: str) -> str:
+        return s.replace('"', '\\"')
+
+    conditions = [f"page_number == {int(page_number)}"]
+    if document_title:
+        conditions.append(f'document_title == "{esc(document_title)}"')
+    if subject:
+        conditions.append(f'subject == "{esc(subject)}"')
+    if class_level:
+        conditions.append(f'class_level == "{esc(class_level)}"')
+    if language:
+        conditions.append(f'language == "{esc(language)}"')
+    if document_type:
+        conditions.append(f'document_type == "{esc(document_type)}"')
+
+    expr = " && ".join(conditions)
+    results = col.query(
+        expr=expr,
+        output_fields=[
+            "chunk_id", "document_id", "chunk_index",
+            "document_title", "subject", "class_level",
+            "document_type", "language", "academic_year", "term",
+            "chapter_number", "chapter_title", "page_number",
+            "chunk_text",
+        ],
+        limit=limit,
+        consistency_level="Strong",
+    )
+
+    # Reading order: document → chunk position
+    results.sort(key=lambda r: (r.get("document_title", ""), r.get("chunk_index", 0)))
+    for r in results:
+        r["score"] = 1.0
+    return results

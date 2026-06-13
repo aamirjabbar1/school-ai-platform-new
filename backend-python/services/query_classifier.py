@@ -47,6 +47,34 @@ _EXHAUSTIVE_PATTERNS = [
     re.compile(r"تمام|سارے|ہر\s+ایک"),
 ]
 
+# Page-reference detection. A page number lives only in chunk metadata
+# (page_number) — it is NOT present in the chunk text — so queries like
+# "what is on page 45" cannot be answered by vector/BM25 search alone and
+# must be routed to a direct metadata lookup.
+_DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+_PAGE_RE = re.compile(
+    r"\b(?:pages?|pg|p\.)\s*(?:no\.?|number|num|#)?\s*(\d{1,4})\b",
+    re.IGNORECASE,
+)
+_PAGE_RE_URDU = re.compile(r"صفح[ہه]\s*(?:نمبر)?\s*([0-9۰-۹٠-٩]{1,4})")
+
+
+def _detect_page_number(query: str) -> Optional[int]:
+    """Extract a referenced page number from the query, or None."""
+    m = _PAGE_RE.search(query)
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            pass
+    m = _PAGE_RE_URDU.search(query)
+    if m:
+        try:
+            return int(m.group(1).translate(_DIGIT_MAP))
+        except ValueError:
+            pass
+    return None
+
 
 # ─── Dynamic document index ───────────────────────────────────────────────────
 
@@ -214,6 +242,7 @@ async def classify_query(
         "subject":        str | None,
         "class_level":    str | None,
         "chapter_title":  str | None,
+        "page_number":    int | None,
         "sub_queries":    list[str],
         "reason":         str,
       }
@@ -225,6 +254,7 @@ async def classify_query(
     detected_subject  = _find_substring(q_lower, index["subjects"]) or subject_hint
     detected_class    = _find_substring(q_lower, index["classes"]) or class_hint
     detected_chapter  = _find_substring(q_lower, index["chapters"])
+    detected_page     = _detect_page_number(query)
 
     fast = _regex_classify(query)
 
@@ -236,6 +266,7 @@ async def classify_query(
             "subject":        detected_subject,
             "class_level":    detected_class,
             "chapter_title":  detected_chapter,
+            "page_number":    detected_page,
             "sub_queries":    [],
             "reason":         "matched exhaustive keyword",
         }
@@ -246,6 +277,7 @@ async def classify_query(
             "subject":        detected_subject,
             "class_level":    detected_class,
             "chapter_title":  detected_chapter,
+            "page_number":    detected_page,
             "sub_queries":    [],
             "reason":         "matched point pattern",
         }
@@ -262,6 +294,7 @@ async def classify_query(
             "subject":        detected_subject,
             "class_level":    detected_class,
             "chapter_title":  detected_chapter,
+            "page_number":    detected_page,
             "sub_queries":    [],
             "reason":         "regex/fallback (LLM failed)",
         }
@@ -277,6 +310,7 @@ async def classify_query(
         "subject":        detected_subject,
         "class_level":    detected_class,
         "chapter_title":  detected_chapter,
+        "page_number":    detected_page,
         "sub_queries":    llm_result["sub_queries"],
         "reason":         llm_result["reason"],
     }

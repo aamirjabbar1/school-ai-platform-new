@@ -5,6 +5,27 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
+import logging
+import sys
+
+# Ensure application loggers (e.g. "agent") emit INFO to stdout/container logs,
+# regardless of uvicorn's own logging configuration. `force=True` overrides any
+# handlers uvicorn may have installed on the root logger.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
+_agent_logger = logging.getLogger("agent")
+_agent_logger.setLevel(logging.INFO)
+if not _agent_logger.handlers:
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s"))
+    _agent_logger.addHandler(_h)
+_agent_logger.propagate = True
+_agent_logger.info("[BOOT] agent logger initialized")
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse

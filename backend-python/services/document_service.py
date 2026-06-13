@@ -900,6 +900,7 @@ async def search_knowledge_base(
         qtype       = cls["type"]
         doc_title   = cls["document_title"]
         sub_queries = cls["sub_queries"] or []
+        page_number = cls.get("page_number")
 
         # Auto-fill filters that were not explicitly passed in
         eff_subject = subject or cls["subject"]
@@ -908,9 +909,35 @@ async def search_knowledge_base(
 
         print(
             f"[search_knowledge_base] type={qtype} doc='{doc_title}' "
-            f"subject='{eff_subject}' class='{eff_class}' "
+            f"subject='{eff_subject}' class='{eff_class}' page={page_number} "
             f"sub_queries={len(sub_queries)} reason='{cls['reason']}'"
         )
+
+        # ── Route 0: page-number lookup ──────────────────────────────────────
+        # A referenced page number lives only in chunk metadata, so neither
+        # vector nor BM25 search can find it. Resolve it via a direct scalar
+        # lookup, scoped by whatever document/subject/class context we have.
+        if page_number:
+            page_hits = await asyncio.to_thread(
+                vector_service.query_chunks_by_page,
+                page_number,
+                doc_title,
+                eff_subject,
+                eff_class,
+                language,
+                document_type,
+            )
+            # If the page filter plus subject/class was too strict, retry with
+            # just the page number scoped to the document (or wholly unscoped).
+            if not page_hits and (eff_subject or eff_class or document_type):
+                page_hits = await asyncio.to_thread(
+                    vector_service.query_chunks_by_page,
+                    page_number, doc_title, None, None, language, None,
+                )
+            if page_hits:
+                return page_hits[:limit]
+            # Nothing on that page → fall through to normal retrieval so the
+            # query's actual topic words can still find relevant content.
 
         # ── Route 1: exhaustive (full document) ──────────────────────────────
         if qtype == "exhaustive" and doc_title:
