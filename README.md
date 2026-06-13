@@ -1,4 +1,4 @@
-# School AI Platform
+# School AI Platform LSS
 
 A complete AI-powered educational platform for schools with student, teacher, and admin dashboards. The AI chatbot is strictly limited to school curriculum content using Retrieval-Augmented Generation (RAG).
 
