@@ -113,8 +113,8 @@ export default function QuestionPapers() {
     <Layout title="Question Papers">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="font-semibold text-gray-800">Question Papers</h2>
-          <p className="text-sm text-gray-500">Generate AI-powered exam papers from your curriculum</p>
+          <h2 className="font-semibold text-ink">Question Papers</h2>
+          <p className="text-sm text-muted">Generate AI-powered exam papers from your curriculum</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => { setShowPredict(true); setPredictions(null); }} className="btn-secondary flex items-center gap-2">
@@ -134,11 +134,11 @@ export default function QuestionPapers() {
       )}
 
       {loading ? (
-        <div className="grid gap-3">{[1,2,3].map((i) => <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+        <div className="grid gap-3">{[1,2,3].map((i) => <div key={i} className="h-20 bg-surface-3 rounded-xl animate-pulse" />)}</div>
       ) : papers.length === 0 ? (
         <div className="card text-center py-12">
-          <FileText size={40} className="mx-auto mb-3 text-gray-300" />
-          <p className="text-gray-500">No question papers yet</p>
+          <FileText size={40} className="mx-auto mb-3 text-faint" />
+          <p className="text-muted">No question papers yet</p>
           <button onClick={() => setShowGenerator(true)} className="btn-primary mt-3 inline-flex items-center gap-2">
             <Wand2 size={16} /> Generate First Paper
           </button>
@@ -150,43 +150,43 @@ export default function QuestionPapers() {
               <div className="flex items-start justify-between gap-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-semibold text-gray-800 text-sm">{p.title}</h3>
+                    <h3 className="font-semibold text-ink text-sm">{p.title}</h3>
                     <span className={p.is_published ? 'badge-green' : 'badge-gray'}>
                       {p.is_published ? 'Published' : 'Draft'}
                     </span>
                     <span className="badge-blue capitalize">{p.paper_type?.replace('_', ' ')}</span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-muted mt-1">
                     {p.subject} • {p.class_name} • {p.total_marks} marks • {p.duration_minutes} min
                     {p.questions?.length > 0 && ` • ${p.questions.length} questions`}
                   </p>
-                  <p className="text-xs text-gray-400">{new Date(p.created_at).toLocaleDateString()}</p>
+                  <p className="text-xs text-faint">{new Date(p.created_at).toLocaleDateString()}</p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button
                     onClick={() => setViewPaper(p)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-blue-600"
+                    className="p-1.5 rounded-lg hover:bg-surface-3 text-muted hover:text-blue-600"
                     title="View paper"
                   >
                     <Eye size={16} />
                   </button>
                   <button
                     onClick={() => downloadPdf(p)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-indigo-600"
+                    className="p-1.5 rounded-lg hover:bg-surface-3 text-muted hover:text-indigo-600"
                     title="Download PDF (with answer key)"
                   >
                     <Download size={16} />
                   </button>
                   <button
                     onClick={() => togglePublish(p.id)}
-                    className={`p-1.5 rounded-lg hover:bg-gray-100 ${p.is_published ? 'text-green-600' : 'text-gray-400 hover:text-green-600'}`}
+                    className={`p-1.5 rounded-lg hover:bg-surface-3 ${p.is_published ? 'text-green-600' : 'text-faint hover:text-green-600'}`}
                     title={p.is_published ? 'Unpublish' : 'Publish to students'}
                   >
                     {p.is_published ? <Globe size={16} /> : <EyeOff size={16} />}
                   </button>
                   <button
                     onClick={() => deletePaper(p.id)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-600"
+                    className="p-1.5 rounded-lg hover:bg-surface-3 text-faint hover:text-red-600"
                   >
                     <Trash2 size={16} />
                   </button>
@@ -200,75 +200,75 @@ export default function QuestionPapers() {
       {/* Generator Modal */}
       {showGenerator && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg my-4">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg my-4">
             <div className="p-5 border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Wand2 size={18} className="text-blue-600" />
-                <h2 className="font-bold text-gray-900">Generate Question Paper</h2>
+                <h2 className="font-bold text-ink">Generate Question Paper</h2>
               </div>
-              <button onClick={() => setShowGenerator(false)} className="text-gray-400 hover:text-gray-600">
+              <button onClick={() => setShowGenerator(false)} className="text-faint hover:text-muted">
                 <X size={20} />
               </button>
             </div>
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
                   <select value={genForm.subject} onChange={(e) => setGen('subject', e.target.value)} className="input-field">
                     <option value="">Select</option>
                     {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Class *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Class *</label>
                   <select value={genForm.class_name} onChange={(e) => setGen('class_name', e.target.value)} className="input-field">
                     <option value="">Select</option>
                     {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Paper Type</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Paper Type</label>
                   <select value={genForm.paper_type} onChange={(e) => setGen('paper_type', e.target.value)} className="input-field">
                     {PAPER_TYPES.map((t) => <option key={t} value={t} className="capitalize">{t.replace('_', ' ')}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Total Marks</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Total Marks</label>
                   <input type="number" value={genForm.total_marks} onChange={(e) => setGen('total_marks', parseInt(e.target.value))} className="input-field" min="10" max="200" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Duration (min)</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Duration (min)</label>
                   <input type="number" value={genForm.duration_minutes} onChange={(e) => setGen('duration_minutes', parseInt(e.target.value))} className="input-field" min="15" max="180" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Focus Topics (comma-separated, optional)</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Focus Topics (comma-separated, optional)</label>
                 <input type="text" value={genForm.topics} onChange={(e) => setGen('topics', e.target.value)} className="input-field" placeholder="e.g. Photosynthesis, Cell Division, Respiration" />
               </div>
 
               {/* Generation mode */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Generation Mode</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Generation Mode</label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => setGen('generation_mode', 'standard')}
-                    className={`p-2.5 rounded-lg border text-left text-xs transition-all ${genForm.generation_mode === 'standard' ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                    className={`p-2.5 rounded-lg border text-left text-xs transition-all ${genForm.generation_mode === 'standard' ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-line text-muted hover:border-line'}`}
                   >
                     <span className="font-semibold flex items-center gap-1"><Wand2 size={13} /> Standard</span>
-                    <span className="block text-gray-500 mt-0.5">From the curriculum (textbooks).</span>
+                    <span className="block text-muted mt-0.5">From the curriculum (textbooks).</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setGen('generation_mode', 'model')}
-                    className={`p-2.5 rounded-lg border text-left text-xs transition-all ${genForm.generation_mode === 'model' ? 'border-purple-500 bg-purple-50 text-purple-800' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}
+                    className={`p-2.5 rounded-lg border text-left text-xs transition-all ${genForm.generation_mode === 'model' ? 'border-purple-500 bg-purple-50 text-purple-800' : 'border-line text-muted hover:border-line'}`}
                   >
                     <span className="font-semibold flex items-center gap-1"><Sparkles size={13} /> Model Paper</span>
-                    <span className="block text-gray-500 mt-0.5">Mirrors uploaded past papers.</span>
+                    <span className="block text-muted mt-0.5">Mirrors uploaded past papers.</span>
                   </button>
                 </div>
                 {genForm.generation_mode === 'standard' && (
-                  <label className="flex items-center gap-2 mt-2 text-xs text-gray-600">
+                  <label className="flex items-center gap-2 mt-2 text-xs text-muted">
                     <input type="checkbox" checked={genForm.use_past_papers} onChange={(e) => setGen('use_past_papers', e.target.checked)} />
                     Use uploaded past papers as a style &amp; difficulty reference
                   </label>
@@ -294,11 +294,11 @@ export default function QuestionPapers() {
       {/* View Paper Modal */}
       {viewPaper && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-4">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-3xl my-4">
             <div className="p-5 border-b flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-gray-900">{viewPaper.title}</h2>
-                <p className="text-sm text-gray-500">{viewPaper.total_marks} marks • {viewPaper.duration_minutes} min</p>
+                <h2 className="font-bold text-ink">{viewPaper.title}</h2>
+                <p className="text-sm text-muted">{viewPaper.total_marks} marks • {viewPaper.duration_minutes} min</p>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -308,25 +308,25 @@ export default function QuestionPapers() {
                 >
                   <Download size={14} /> PDF
                 </button>
-                <button onClick={() => setViewPaper(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+                <button onClick={() => setViewPaper(null)} className="text-faint hover:text-muted"><X size={20} /></button>
               </div>
             </div>
             <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
               {viewPaper.questions?.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">No questions available</p>
+                <p className="text-muted text-center py-4">No questions available</p>
               ) : (
                 viewPaper.questions?.map((q, i) => (
-                  <div key={i} className="border border-gray-200 rounded-lg p-3">
+                  <div key={i} className="border border-line rounded-lg p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-800">
+                        <p className="text-sm font-medium text-ink">
                           Q{q.number}. {q.question}
-                          <span className="ml-2 text-xs text-gray-400">({q.marks} marks)</span>
+                          <span className="ml-2 text-xs text-faint">({q.marks} marks)</span>
                         </p>
                         {q.options && (
                           <div className="mt-2 space-y-1">
                             {q.options.map((opt, j) => (
-                              <p key={j} className="text-xs text-gray-600 ml-3">{opt}</p>
+                              <p key={j} className="text-xs text-muted ml-3">{opt}</p>
                             ))}
                           </div>
                         )}
@@ -363,26 +363,26 @@ export default function QuestionPapers() {
       {/* Predict Important Questions Modal */}
       {showPredict && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-4">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl my-4">
             <div className="p-5 border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Lightbulb size={18} className="text-amber-500" />
-                <h2 className="font-bold text-gray-900">Predict Important Questions</h2>
+                <h2 className="font-bold text-ink">Predict Important Questions</h2>
               </div>
-              <button onClick={() => { setShowPredict(false); setPredictions(null); }} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <button onClick={() => { setShowPredict(false); setPredictions(null); }} className="text-faint hover:text-muted"><X size={20} /></button>
             </div>
             <div className="p-5 space-y-4">
-              <p className="text-sm text-gray-500">The AI analyses all uploaded past papers for this subject and class to predict the questions most likely to appear.</p>
+              <p className="text-sm text-muted">The AI analyses all uploaded past papers for this subject and class to predict the questions most likely to appear.</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
                   <select value={predictForm.subject} onChange={(e) => setPredictForm((f) => ({ ...f, subject: e.target.value }))} className="input-field">
                     <option value="">Select</option>
                     {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Class *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Class *</label>
                   <select value={predictForm.class_name} onChange={(e) => setPredictForm((f) => ({ ...f, class_name: e.target.value }))} className="input-field">
                     <option value="">Select</option>
                     {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -399,22 +399,22 @@ export default function QuestionPapers() {
                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">{predictions.summary}</div>
                   )}
                   {(predictions.predictions || []).length === 0 ? (
-                    <p className="text-sm text-gray-500 text-center py-2">No predictions returned.</p>
+                    <p className="text-sm text-muted text-center py-2">No predictions returned.</p>
                   ) : (
                     predictions.predictions.map((p, i) => (
-                      <div key={i} className="border border-gray-200 rounded-lg p-3">
+                      <div key={i} className="border border-line rounded-lg p-3">
                         <div className="flex items-center gap-2 flex-wrap mb-1">
                           <span className="badge-blue">{p.topic}</span>
                           <span className={IMPORTANCE_BADGE[p.importance] || 'badge-gray'}>{p.importance} priority</span>
-                          {p.frequency && <span className="text-xs text-gray-400">{p.frequency}</span>}
+                          {p.frequency && <span className="text-xs text-faint">{p.frequency}</span>}
                         </div>
-                        <p className="text-sm font-medium text-gray-800">{p.question}</p>
-                        {p.rationale && <p className="text-xs text-gray-500 mt-1">{p.rationale}</p>}
+                        <p className="text-sm font-medium text-ink">{p.question}</p>
+                        {p.rationale && <p className="text-xs text-muted mt-1">{p.rationale}</p>}
                       </div>
                     ))
                   )}
                   {predictions.sources?.length > 0 && (
-                    <p className="text-xs text-gray-400">Based on: {predictions.sources.join(', ')}</p>
+                    <p className="text-xs text-faint">Based on: {predictions.sources.join(', ')}</p>
                   )}
                 </div>
               )}

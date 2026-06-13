@@ -104,8 +104,8 @@ export default function CreateAssignment() {
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle size={32} className="text-green-600" />
           </div>
-          <h2 className="text-xl font-bold text-gray-900">Assignment Created!</h2>
-          <p className="text-gray-500 text-sm mt-2">Students have been notified. Redirecting...</p>
+          <h2 className="text-xl font-bold text-ink">Assignment Created!</h2>
+          <p className="text-muted text-sm mt-2">Students have been notified. Redirecting...</p>
         </div>
       </Layout>
     );
@@ -121,7 +121,7 @@ export default function CreateAssignment() {
         )}
 
         {/* AI Generator */}
-        <div className="card border-2 border-dashed border-blue-200 bg-blue-50/50">
+        <div className="card border-2 border-dashed border-blue-200 dark:border-blue-500/30 bg-blue-50/50 dark:bg-brand-blue/10">
           <div className="flex items-center gap-2 mb-3">
             <Wand2 size={18} className="text-blue-600" />
             <span className="font-semibold text-blue-800 text-sm">AI Assignment Generator</span>
@@ -152,42 +152,42 @@ export default function CreateAssignment() {
 
         {/* Assignment Form */}
         <form onSubmit={handleSubmit} className="card space-y-4">
-          <h3 className="font-semibold text-gray-800">Assignment Details</h3>
+          <h3 className="font-semibold text-ink">Assignment Details</h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
+              <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
               <select value={form.subject} onChange={(e) => set('subject', e.target.value)} className="input-field" required>
                 <option value="">Select subject</option>
                 {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Class *</label>
+              <label className="block text-sm font-medium text-ink/90 mb-1">Class *</label>
               <select value={form.class_name} onChange={(e) => set('class_name', e.target.value)} className="input-field" required>
                 <option value="">Select class</option>
                 {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+              <label className="block text-sm font-medium text-ink/90 mb-1">Type</label>
               <select value={form.assignment_type} onChange={(e) => set('assignment_type', e.target.value)} className="input-field capitalize">
                 {TYPES.map((t) => <option key={t} value={t} className="capitalize">{t}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Max Marks</label>
+              <label className="block text-sm font-medium text-ink/90 mb-1">Max Marks</label>
               <input type="number" value={form.max_marks} onChange={(e) => set('max_marks', e.target.value)} className="input-field" min="1" max="1000" />
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            <label className="block text-sm font-medium text-ink/90 mb-1">Title</label>
             <input type="text" value={form.title} onChange={(e) => set('title', e.target.value)} className="input-field" placeholder="Leave blank to auto-generate from the topic" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description / Content</label>
+            <label className="block text-sm font-medium text-ink/90 mb-1">Description / Content</label>
             <textarea
               value={form.description}
               onChange={(e) => set('description', e.target.value)}
@@ -199,11 +199,11 @@ export default function CreateAssignment() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+              <label className="block text-sm font-medium text-ink/90 mb-1">Due Date</label>
               <input type="date" value={form.due_date} onChange={(e) => set('due_date', e.target.value)} className="input-field" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Additional Instructions</label>
+              <label className="block text-sm font-medium text-ink/90 mb-1">Additional Instructions</label>
               <input type="text" value={form.instructions} onChange={(e) => set('instructions', e.target.value)} className="input-field" placeholder="Optional instructions" />
             </div>
           </div>

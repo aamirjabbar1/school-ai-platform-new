@@ -178,10 +178,10 @@ export default function KnowledgeBase() {
 
   const ProgressBar = () => (
     <div className="space-y-1">
-      <div className="w-full bg-gray-100 rounded-full h-2 overflow-hidden">
+      <div className="w-full bg-surface-3 rounded-full h-2 overflow-hidden">
         <div className="bg-blue-600 h-2 transition-all duration-200" style={{ width: `${uploadProgress}%` }} />
       </div>
-      <p className="text-xs text-gray-500 text-center">
+      <p className="text-xs text-muted text-center">
         {uploadProgress < 100 ? `Uploading… ${uploadProgress}%` : 'Processing on server…'}
       </p>
     </div>
@@ -214,8 +214,8 @@ export default function KnowledgeBase() {
               <div className={`w-9 h-9 rounded-lg ${STAT_STYLES[color].wrap} flex items-center justify-center mb-2`}>
                 <Icon size={18} className={STAT_STYLES[color].icon} />
               </div>
-              <div className="text-xl font-bold text-gray-900">{value}</div>
-              <div className="text-xs text-gray-500">{label}</div>
+              <div className="text-xl font-bold text-ink">{value}</div>
+              <div className="text-xs text-muted">{label}</div>
             </div>
           ))}
         </div>
@@ -249,12 +249,12 @@ export default function KnowledgeBase() {
 
       {/* Documents List */}
       {loading ? (
-        <div className="grid gap-3">{[1,2,3,4].map((i) => <div key={i} className="h-20 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+        <div className="grid gap-3">{[1,2,3,4].map((i) => <div key={i} className="h-20 bg-surface-3 rounded-xl animate-pulse" />)}</div>
       ) : documents.length === 0 ? (
         <div className="card text-center py-16">
           <Database size={48} className="mx-auto mb-4 text-gray-200" />
-          <h3 className="font-semibold text-gray-600 mb-1">Nothing here yet</h3>
-          <p className="text-sm text-gray-400 mb-4">Upload books, study material, or past papers to power the AI</p>
+          <h3 className="font-semibold text-muted mb-1">Nothing here yet</h3>
+          <p className="text-sm text-faint mb-4">Upload books, study material, or past papers to power the AI</p>
           <button onClick={() => setShowTypeSelect(true)} className="btn-primary inline-flex items-center gap-2">
             <Upload size={16} /> Upload to Knowledge Base
           </button>
@@ -274,7 +274,7 @@ export default function KnowledgeBase() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-semibold text-gray-800">{doc.title}</h3>
+                    <h3 className="font-semibold text-ink">{doc.title}</h3>
                     {isExam
                       ? <span className="badge-purple">{PAPER_TYPE_LABEL[doc.paper_type] || 'Question Paper'}</span>
                       : <span className="badge-gray">Book / Material</span>}
@@ -296,14 +296,14 @@ export default function KnowledgeBase() {
                       </span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-400 mt-1">
+                  <div className="text-xs text-faint mt-1">
                     {doc.file_name} • {formatSize(doc.file_size)} • {doc.file_type.toUpperCase()}
                     {doc.language && doc.language !== 'English' && ` • ${doc.language}`}
                     {doc.ingestion_error && (
                       <span className="text-red-500 ml-2">Error: {doc.ingestion_error}</span>
                     )}
                   </div>
-                  <div className="text-xs text-gray-400">
+                  <div className="text-xs text-faint">
                     Uploaded {(() => { const d = new Date((doc.created_at || '').replace(/(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+([+-])/, '$1$2')); return isNaN(d) ? '' : d.toLocaleDateString(); })()}
                   </div>
                 </div>
@@ -311,7 +311,7 @@ export default function KnowledgeBase() {
                   {(!doc.is_ingested || doc.ingestion_error) && (
                     <button
                       onClick={() => reingest(doc.id, doc.title)}
-                      className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-blue-600"
+                      className="p-1.5 rounded-lg hover:bg-surface-3 text-faint hover:text-blue-600"
                       title="Re-process"
                     >
                       <RefreshCw size={15} />
@@ -319,7 +319,7 @@ export default function KnowledgeBase() {
                   )}
                   <button
                     onClick={() => deleteDoc(doc.id, doc.title)}
-                    className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-red-600"
+                    className="p-1.5 rounded-lg hover:bg-surface-3 text-faint hover:text-red-600"
                     title="Delete"
                   >
                     <Trash2 size={15} />
@@ -335,38 +335,38 @@ export default function KnowledgeBase() {
       {/* Type Selection Modal */}
       {showTypeSelect && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg">
             <div className="p-5 border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Upload size={18} className="text-blue-600" />
-                <h2 className="font-bold text-gray-900">What would you like to upload?</h2>
+                <h2 className="font-bold text-ink">What would you like to upload?</h2>
               </div>
-              <button onClick={() => setShowTypeSelect(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <button onClick={() => setShowTypeSelect(false)} className="text-faint hover:text-muted"><X size={20} /></button>
             </div>
             <div className="p-5 grid sm:grid-cols-2 gap-4">
               <button
                 onClick={() => { setShowTypeSelect(false); setError(''); setShowUpload(true); }}
-                className="text-left p-5 rounded-xl border-2 border-gray-100 hover:border-blue-400 hover:bg-blue-50/40 transition-all group"
+                className="text-left p-5 rounded-xl border-2 border-line hover:border-blue-400 hover:bg-blue-50/40 transition-all group"
               >
                 <div className="w-11 h-11 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center mb-3">
                   <BookOpen size={22} />
                 </div>
-                <div className="font-semibold text-gray-800 flex items-center gap-1">
-                  Book / Study Material <ChevronRight size={15} className="text-gray-300 group-hover:text-blue-500" />
+                <div className="font-semibold text-ink flex items-center gap-1">
+                  Book / Study Material <ChevronRight size={15} className="text-faint group-hover:text-blue-500" />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Textbooks, notes and curriculum material for the AI chatbot.</p>
+                <p className="text-xs text-muted mt-1">Textbooks, notes and curriculum material for the AI chatbot.</p>
               </button>
               <button
                 onClick={() => { setShowTypeSelect(false); setError(''); setShowPaperUpload(true); }}
-                className="text-left p-5 rounded-xl border-2 border-gray-100 hover:border-purple-400 hover:bg-purple-50/40 transition-all group"
+                className="text-left p-5 rounded-xl border-2 border-line hover:border-purple-400 hover:bg-purple-50/40 transition-all group"
               >
                 <div className="w-11 h-11 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center mb-3">
                   <ScrollText size={22} />
                 </div>
-                <div className="font-semibold text-gray-800 flex items-center gap-1">
-                  Question Paper / Past Papers <ChevronRight size={15} className="text-gray-300 group-hover:text-purple-500" />
+                <div className="font-semibold text-ink flex items-center gap-1">
+                  Question Paper / Past Papers <ChevronRight size={15} className="text-faint group-hover:text-purple-500" />
                 </div>
-                <p className="text-xs text-gray-500 mt-1">Past, test, midterm, final &amp; MCQ papers the AI uses to generate &amp; predict.</p>
+                <p className="text-xs text-muted mt-1">Past, test, midterm, final &amp; MCQ papers the AI uses to generate &amp; predict.</p>
               </button>
             </div>
           </div>
@@ -376,49 +376,49 @@ export default function KnowledgeBase() {
       {/* Book Upload Modal */}
       {showUpload && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-md">
             <div className="p-5 border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <BookOpen size={18} className="text-blue-600" />
-                <h2 className="font-bold text-gray-900">Upload Book / Study Material</h2>
+                <h2 className="font-bold text-ink">Upload Book / Study Material</h2>
               </div>
-              <button onClick={() => setShowUpload(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <button onClick={() => setShowUpload(false)} className="text-faint hover:text-muted"><X size={20} /></button>
             </div>
             <form onSubmit={handleUpload} className="p-5 space-y-4">
               {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Book / Document Title *</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Book / Document Title *</label>
                 <input type="text" value={uploadForm.title} onChange={(e) => setUF('title', e.target.value)} className="input-field" placeholder="e.g. Class 9 Chemistry Textbook" required />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
                   <select value={uploadForm.subject} onChange={(e) => setUF('subject', e.target.value)} className="input-field" required>
                     <option value="">Select</option>
                     {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Class Level *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Class Level *</label>
                   <select value={uploadForm.class_level} onChange={(e) => setUF('class_level', e.target.value)} className="input-field" required>
                     {CLASS_LEVELS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Description</label>
                 <input type="text" value={uploadForm.description} onChange={(e) => setUF('description', e.target.value)} className="input-field" placeholder="Brief description (optional)" />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">File * (PDF, DOCX, TXT)</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">File * (PDF, DOCX, TXT)</label>
                 <input
                   type="file"
                   accept={ACCEPT}
                   onChange={(e) => setUF('file', e.target.files[0])}
-                  className="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-sm file:bg-gray-50 hover:file:bg-gray-100"
+                  className="w-full text-sm text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-line file:text-sm file:bg-surface-3/60 hover:file:bg-surface-3"
                   required
                 />
-                <p className="text-xs text-gray-400 mt-1">Max size: 50MB</p>
+                <p className="text-xs text-faint mt-1">Max size: 50MB</p>
               </div>
               {uploading && <ProgressBar />}
               <div className="flex gap-3 pt-1">
@@ -435,67 +435,67 @@ export default function KnowledgeBase() {
       {/* Question Paper Upload Modal */}
       {showPaperUpload && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md my-4">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-md my-4">
             <div className="p-5 border-b flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ScrollText size={18} className="text-purple-600" />
-                <h2 className="font-bold text-gray-900">Upload Question Paper / Past Paper</h2>
+                <h2 className="font-bold text-ink">Upload Question Paper / Past Paper</h2>
               </div>
-              <button onClick={() => setShowPaperUpload(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <button onClick={() => setShowPaperUpload(false)} className="text-faint hover:text-muted"><X size={20} /></button>
             </div>
             <form onSubmit={handlePaperUpload} className="p-5 space-y-4">
               {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Paper Title *</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Paper Title *</label>
                 <input type="text" value={paperForm.title} onChange={(e) => setPF('title', e.target.value)} className="input-field" placeholder="e.g. Class 10 Physics Final Exam 2023" required />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
                   <select value={paperForm.subject} onChange={(e) => setPF('subject', e.target.value)} className="input-field" required>
                     <option value="">Select</option>
                     {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Class *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Class *</label>
                   <select value={paperForm.class_level} onChange={(e) => setPF('class_level', e.target.value)} className="input-field" required>
                     {CLASS_LEVELS.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Paper Type *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Paper Type *</label>
                   <select value={paperForm.paper_type} onChange={(e) => setPF('paper_type', e.target.value)} className="input-field" required>
                     {PAPER_TYPES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Year</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Year</label>
                   <select value={paperForm.academic_year} onChange={(e) => setPF('academic_year', e.target.value)} className="input-field">
                     {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Language</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Language</label>
                   <select value={paperForm.language} onChange={(e) => setPF('language', e.target.value)} className="input-field">
                     {LANGUAGES.map((l) => <option key={l} value={l}>{l}</option>)}
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Chapter / Topic</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Chapter / Topic</label>
                   <input type="text" value={paperForm.chapter} onChange={(e) => setPF('chapter', e.target.value)} className="input-field" placeholder="optional" />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">File * (PDF, DOCX, TXT)</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">File * (PDF, DOCX, TXT)</label>
                 <input
                   type="file"
                   accept={ACCEPT}
                   onChange={(e) => setPF('file', e.target.files[0])}
-                  className="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-sm file:bg-gray-50 hover:file:bg-gray-100"
+                  className="w-full text-sm text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-line file:text-sm file:bg-surface-3/60 hover:file:bg-surface-3"
                   required
                 />
-                <p className="text-xs text-gray-400 mt-1">Max size: 50MB</p>
+                <p className="text-xs text-faint mt-1">Max size: 50MB</p>
               </div>
               {uploading && <ProgressBar />}
               <div className="flex gap-3 pt-1">

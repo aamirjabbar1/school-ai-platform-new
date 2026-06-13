@@ -1,13 +1,20 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { chatAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import {
-  Send, Bot, User, BookOpen, Loader2, Trash2, Plus, X,
-  Brain, AlertTriangle, Globe, Square, ChevronDown, Sparkles,
-} from 'lucide-react';
+import { History, Plus, User } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
+
+import AiOrb from './chat/AiOrb';
+import ThinkingTrace from './chat/ThinkingTrace';
+import WebSearchTrace from './chat/WebSearchTrace';
+import SourcesCard from './chat/SourcesCard';
+import WelcomeHero from './chat/WelcomeHero';
+import Composer from './chat/Composer';
+import SessionsDrawer from './chat/SessionsDrawer';
+import StatsBar from './chat/StatsBar';
 
 const SUBJECTS = [
   'Mathematics', 'Science', 'English', 'Urdu', 'Islamiat',
@@ -33,100 +40,45 @@ function normalizeSources(raw) {
   };
 }
 
-// ─── Extended-thinking (reasoning) trace ─────────────────────────────────────
-function ThinkingTrace({ text, active }) {
-  const [open, setOpen] = useState(false);
-  // Auto-expand while Claude is actively thinking, auto-collapse once done.
-  useEffect(() => { setOpen(active); }, [active]);
-  if (!text && !active) return null;
-  return (
-    <div className="w-full max-w-full">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={`group relative flex items-center gap-2 text-xs font-semibold rounded-full pl-2.5 pr-3 py-1.5 transition-all duration-300 ${
-          active
-            ? 'text-white shadow-md shadow-indigo-300/50 bg-gradient-to-r from-indigo-500 via-violet-500 to-sky-500 bg-[length:200%_100%] animate-[shimmer_2.5s_linear_infinite]'
-            : 'text-indigo-600 bg-indigo-50 ring-1 ring-inset ring-indigo-100 hover:bg-indigo-100'
-        }`}
-      >
-        <Sparkles
-          size={13}
-          className={active ? 'text-white animate-[spin_3s_linear_infinite]' : 'text-indigo-500'}
-        />
-        <span className="tracking-tight">{active ? 'Thinking' : 'Thought process'}</span>
-        <ChevronDown
-          size={13}
-          className={`transition-transform duration-300 ${open ? 'rotate-180' : ''} ${active ? 'text-white/80' : 'text-indigo-400'}`}
-        />
-      </button>
-      <div className={`grid transition-all duration-300 ease-out ${open ? 'grid-rows-[1fr] opacity-100 mt-2' : 'grid-rows-[0fr] opacity-0'}`}>
-        <div className="overflow-hidden">
-          <div className="relative rounded-xl bg-gradient-to-br from-indigo-50/80 to-sky-50/60 ring-1 ring-inset ring-indigo-100/80 px-3.5 py-2.5">
-            <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-full bg-gradient-to-b from-indigo-400 via-violet-400 to-sky-400" />
-            <p className="text-[12.5px] leading-relaxed text-slate-500 whitespace-pre-wrap break-words pl-2">
-              {text || (active ? 'Reasoning…' : '')}
-              {active && <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle rounded-sm bg-indigo-400 animate-pulse" />}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Web search activity ──────────────────────────────────────────────────────
-function WebSearchTrace({ searches }) {
-  if (!searches?.length) return null;
-  return (
-    <div className="space-y-1">
-      {searches.map((s, i) => (
-        <div key={i} className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-2 py-1.5">
-          <div className="flex items-center gap-1.5 font-medium">
-            <Globe size={11} />
-            <span>Searched the web for:</span>
-            <span className="italic">"{s.query}"</span>
-          </div>
-          {s.urls?.length > 0 && (
-            <div className="mt-1 flex flex-wrap gap-1">
-              {s.urls.slice(0, 5).map((u, j) => (
-                <a
-                  key={j}
-                  href={u.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[10px] px-1.5 py-0.5 bg-white border border-emerald-200 rounded hover:bg-emerald-50 truncate max-w-[160px]"
-                  title={u.title}
-                >
-                  {(() => { try { return new URL(u.url).hostname.replace('www.', ''); } catch { return u.url; } })()}
-                </a>
-              ))}
-              {s.urls.length > 5 && (
-                <span className="text-[10px] text-emerald-600">+{s.urls.length - 5} more</span>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+// Honest gamification: derive a day-streak / questions / chats count from the
+// existing session list — no backend changes.
+function computeStats(sessions) {
+  const questions = sessions.reduce((sum, s) => sum + Math.max(1, Math.ceil((s.message_count || 0) / 2)), 0);
+  const topics = sessions.length;
+  const days = new Set();
+  sessions.forEach((s) => {
+    const d = parseDate(s.last_message_at) || parseDate(s.started_at);
+    if (d) days.add(d.toDateString());
+  });
+  let streak = 0;
+  const cur = new Date();
+  if (!days.has(cur.toDateString())) {
+    cur.setDate(cur.getDate() - 1);
+    if (!days.has(cur.toDateString())) return { questions, topics, streak: 0 };
+  }
+  while (days.has(cur.toDateString())) {
+    streak += 1;
+    cur.setDate(cur.getDate() - 1);
+  }
+  return { questions, topics, streak };
 }
 
 // ─── Main component ──────────────────────────────────────────────────────────
 export default function ChatInterface({ role = 'student' }) {
-  useAuth();
+  const { user } = useAuth();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [sessionId, setSessionId] = useState(uuidv4());
   const [subject, setSubject] = useState('');
   const [sessions, setSessions] = useState([]);
-  const [showSessions, setShowSessions] = useState(true);
+  const [showSessions, setShowSessions] = useState(false);
   const [memoryCount, setMemoryCount] = useState(0);
-  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const abortRef = useRef(null);
+
+  const stats = useMemo(() => computeStats(sessions), [sessions]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -400,221 +352,151 @@ export default function ChatInterface({ role = 'student' }) {
       await chatAPI.clearMemory();
       setSessions([]);
       setMemoryCount(0);
-      setShowClearConfirm(false);
       newChat();
     } catch (e) { console.error(e); }
   };
 
+  const pickPrompt = (q) => {
+    setInput(q);
+    inputRef.current?.focus();
+  };
+
   return (
-    <div className="flex h-full gap-4">
-      {/* Sessions Panel */}
-      {showSessions && (
-        <div className="w-64 shrink-0 card flex flex-col gap-2">
-          <div className="flex items-center justify-between mb-1">
-            <span className="font-semibold text-sm text-gray-700">Chat History</span>
-            <button onClick={() => setShowSessions(false)} className="text-gray-400 hover:text-gray-600">
-              <X size={16} />
-            </button>
-          </div>
-
-          {memoryCount > 0 && (
-            <button
-              onClick={() => setShowClearConfirm(true)}
-              className="flex items-center gap-1.5 self-start text-[11px] text-gray-400 hover:text-red-500 transition-colors"
-              title="Clear all chat history"
-            >
-              <Trash2 size={12} /> Clear history
-            </button>
-          )}
-
-          {showClearConfirm && (
-            <div className="p-2 bg-red-50 rounded-lg border border-red-200">
-              <div className="flex items-center gap-1.5 mb-2">
-                <AlertTriangle size={14} className="text-red-500" />
-                <span className="text-xs text-red-700 font-medium">Delete all chat history?</span>
-              </div>
-              <p className="text-xs text-red-600 mb-2">This will permanently erase the AI's memory of your past conversations.</p>
-              <div className="flex gap-1.5">
-                <button onClick={clearAllMemory} className="flex-1 text-xs py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors">Delete All</button>
-                <button onClick={() => setShowClearConfirm(false)} className="flex-1 text-xs py-1 bg-white text-gray-600 rounded border border-gray-200 hover:bg-gray-50 transition-colors">Cancel</button>
-              </div>
-            </div>
-          )}
-
-          <button onClick={newChat} className="btn-primary text-sm flex items-center gap-2 justify-center py-1.5">
-            <Plus size={14} /> New Chat
+    <div className="relative flex flex-col h-full min-h-0 rounded-3xl overflow-hidden glass">
+      {/* Header */}
+      <header className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2.5 border-b border-line/60 glass-strong">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <button
+            onClick={() => setShowSessions(true)}
+            className="h-9 w-9 inline-flex items-center justify-center rounded-xl glass text-muted hover:text-ink transition-colors"
+            title="Chat history"
+            aria-label="Open chat history"
+          >
+            <History size={17} />
           </button>
-          <div className="overflow-y-auto space-y-1 flex-1">
-            {sessions.length === 0 && <p className="text-xs text-gray-400 text-center py-4">No chat history</p>}
-            {sessions.map((s) => (
-              <button
-                key={s.session_id}
-                onClick={() => loadSession(s.session_id)}
-                className={`w-full text-left p-2 rounded-lg hover:bg-gray-50 group transition-colors ${
-                  s.session_id === sessionId ? 'bg-blue-50 border border-blue-100' : ''
-                }`}
-              >
-                <div className="flex items-start justify-between gap-1">
-                  <div className="min-w-0">
-                    <p className="text-xs font-medium text-gray-700 truncate">{s.first_message || 'Chat session'}</p>
-                    {s.subject && <span className="text-xs text-blue-600">{s.subject}</span>}
-                    <p className="text-xs text-gray-400">
-                      {(() => { const d = parseDate(s.last_message_at); return d ? d.toLocaleDateString() : ''; })()}
-                    </p>
-                  </div>
-                  <button onClick={(e) => deleteSession(s.session_id, e)} className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 p-0.5">
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              </button>
-            ))}
+          <AiOrb size={30} icon active={streaming} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span className="font-display font-bold text-sm text-ink truncate">LSS AI Tutor</span>
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70 animate-ping" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+              </span>
+            </div>
+            <p className="text-[11px] text-muted truncate hidden sm:block">Curriculum-grounded · always here to help</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <StatsBar streak={stats.streak} questions={stats.questions} topics={stats.topics} />
+          <button
+            onClick={newChat}
+            className="h-9 w-9 inline-flex items-center justify-center rounded-xl glass text-muted hover:text-ink transition-colors"
+            title="New chat"
+            aria-label="New chat"
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+      </header>
+
+      {/* Conversation */}
+      {messages.length === 0 ? (
+        <div className="flex-1 overflow-y-auto">
+          <WelcomeHero userName={user?.name} role={role} onPick={pickPrompt} />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto max-w-3xl px-3 sm:px-4 py-6 space-y-6">
+            <AnimatePresence initial={false}>
+              {messages.map((msg) => {
+                const isUser = msg.role === 'user';
+                const onlyThinking = msg.role === 'assistant' && msg.streaming && !msg.content;
+                return (
+                  <motion.div
+                    key={msg.id}
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeOut' }}
+                    className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
+                  >
+                    {/* Avatar */}
+                    {isUser ? (
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-blue to-brand-violet flex items-center justify-center shrink-0 mt-0.5 text-white shadow-glow">
+                        <User size={15} />
+                      </div>
+                    ) : (
+                      <AiOrb size={32} icon active={!!msg.streaming} className="mt-0.5" />
+                    )}
+
+                    {/* Content */}
+                    <div className={`max-w-[85%] flex flex-col gap-2 ${isUser ? 'items-end' : 'items-start'}`}>
+                      {msg.role === 'assistant' && (msg.thinking || onlyThinking) && (
+                        <ThinkingTrace text={msg.thinking} active={!!msg.streaming} />
+                      )}
+
+                      {msg.role === 'assistant' && msg.web_searches?.length > 0 && (
+                        <WebSearchTrace searches={msg.web_searches} />
+                      )}
+
+                      {!onlyThinking && (
+                        <div className={`px-4 py-3 text-sm shadow-soft ${
+                          isUser
+                            ? 'bg-gradient-to-br from-brand-blue to-brand-violet text-white rounded-2xl rounded-tr-md'
+                            : 'glass-strong text-ink rounded-2xl rounded-tl-md'
+                        }`}>
+                          {isUser ? (
+                            <p className="whitespace-pre-wrap">{msg.content}</p>
+                          ) : (
+                            <div className="prose-chat">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                              {msg.streaming && msg.content && (
+                                <span className="inline-block w-1.5 h-4 rounded-sm bg-brand-cyan animate-pulse ml-0.5 align-middle" />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* NEW: book sources grounding the answer */}
+                      {msg.role === 'assistant' && msg.kb_sources?.length > 0 && (
+                        <SourcesCard sources={msg.kb_sources} />
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+            <div ref={messagesEndRef} />
           </div>
         </div>
       )}
 
-      {/* Main Chat */}
-      <div className="flex-1 flex flex-col card p-0 overflow-hidden min-w-0">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setShowSessions(!showSessions)}
-              className="p-2 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
-              title="Chat history"
-            >
-              <BookOpen size={18} />
-            </button>
-            <div>
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-green-500" />
-                <span className="font-semibold text-sm text-gray-800">AI Academic Assistant</span>
-              </div>
-              <p className="text-xs text-gray-500">
-                Answers grounded in your school books, with web search when needed
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <select
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="">All Subjects</option>
-              {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-            <button onClick={newChat} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="New chat">
-              <Plus size={18} />
-            </button>
-          </div>
-        </div>
+      {/* Composer */}
+      <Composer
+        input={input}
+        setInput={setInput}
+        onSubmit={sendMessage}
+        streaming={streaming}
+        onStop={stopStreaming}
+        subject={subject}
+        setSubject={setSubject}
+        subjects={SUBJECTS}
+        inputRef={inputRef}
+      />
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center py-8">
-              <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mb-4">
-                <Bot size={32} className="text-blue-600" />
-              </div>
-              <h3 className="font-semibold text-gray-800 mb-1">AI Academic Assistant</h3>
-              <p className="text-sm text-gray-500 max-w-xs">
-                Ask anything from your subjects. Answers are grounded in your school's curriculum.
-              </p>
-              <div className="mt-4 grid grid-cols-2 gap-2 w-full max-w-xs">
-                {['Explain photosynthesis', 'Summarize Chapter 3', 'What is algebra?', 'Create study notes'].map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => { setInput(q); inputRef.current?.focus(); }}
-                    className="text-left text-xs p-2 rounded-lg bg-gray-50 hover:bg-blue-50 hover:text-blue-700 text-gray-600 border border-gray-100 transition-colors"
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {messages.map((msg) => (
-            <div key={msg.id} className={`flex gap-3 fade-in ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
-                msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
-              }`}>
-                {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-              </div>
-
-              <div className={`max-w-[80%] flex flex-col gap-1.5 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                {/* Extended-thinking trace (reasoning, collapsible) */}
-                {msg.role === 'assistant' && (msg.thinking || (msg.streaming && !msg.content)) && (
-                  <ThinkingTrace text={msg.thinking} active={!!msg.streaming} />
-                )}
-
-                {/* Web search trace (above text, like ChatGPT) */}
-                {msg.role === 'assistant' && msg.web_searches?.length > 0 && (
-                  <WebSearchTrace searches={msg.web_searches} />
-                )}
-
-                {/* Message body — hidden while only thinking is streaming */}
-                {!(msg.role === 'assistant' && msg.streaming && !msg.content) && (
-                <div className={`rounded-2xl px-4 py-3 text-sm ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-tr-sm'
-                    : 'bg-white border border-gray-100 shadow-sm text-gray-800 rounded-tl-sm'
-                }`}>
-                  {msg.role === 'user' ? (
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                  ) : (
-                    <div className="prose-chat">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                      {msg.streaming && msg.content && (
-                        <span className="inline-block w-1 h-4 bg-gray-400 animate-pulse ml-0.5" />
-                      )}
-                    </div>
-                  )}
-                </div>
-                )}
-
-              </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className="p-4 border-t border-gray-100">
-          <form onSubmit={sendMessage} className="flex gap-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask a question about your studies..."
-              disabled={streaming}
-              className="flex-1 input-field disabled:bg-gray-50"
-            />
-            {streaming ? (
-              <button
-                type="button"
-                onClick={stopStreaming}
-                className="btn-primary px-3 py-2 bg-red-500 hover:bg-red-600 flex items-center gap-1"
-                title="Stop generating"
-              >
-                <Square size={16} fill="white" />
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim()}
-                className="btn-primary px-3 py-2"
-              >
-                <Send size={18} />
-              </button>
-            )}
-          </form>
-          <p className="text-xs text-gray-400 mt-1.5 text-center">
-            Answers come from your school curriculum. Web search used only when needed.
-          </p>
-        </div>
-      </div>
+      {/* Sessions drawer */}
+      <SessionsDrawer
+        open={showSessions}
+        onClose={() => setShowSessions(false)}
+        sessions={sessions}
+        activeId={sessionId}
+        memoryCount={memoryCount}
+        onLoad={loadSession}
+        onDelete={deleteSession}
+        onNew={newChat}
+        onClearAll={clearAllMemory}
+      />
     </div>
   );
 }

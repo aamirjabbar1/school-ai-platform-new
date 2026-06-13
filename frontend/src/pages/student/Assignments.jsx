@@ -62,13 +62,13 @@ export default function StudentAssignments() {
       )}
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg mb-4 w-fit">
+      <div className="flex gap-1 p-1 bg-surface-3 rounded-lg mb-4 w-fit">
         {['all', 'pending', 'submitted', 'graded'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize
-              ${activeTab === tab ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-800'}`}
+              ${activeTab === tab ? 'bg-surface text-blue-600 shadow-sm' : 'text-muted hover:text-ink'}`}
           >
             {tab}
           </button>
@@ -77,12 +77,12 @@ export default function StudentAssignments() {
 
       {loading ? (
         <div className="grid gap-4">
-          {[1,2,3].map((i) => <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />)}
+          {[1,2,3].map((i) => <div key={i} className="h-24 bg-surface-3 rounded-xl animate-pulse" />)}
         </div>
       ) : filtered.length === 0 ? (
         <div className="card text-center py-12">
-          <BookOpen size={40} className="mx-auto mb-3 text-gray-300" />
-          <p className="text-gray-500">No assignments found</p>
+          <BookOpen size={40} className="mx-auto mb-3 text-faint" />
+          <p className="text-muted">No assignments found</p>
         </div>
       ) : (
         <div className="grid gap-3">
@@ -94,16 +94,16 @@ export default function StudentAssignments() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-gray-800">{a.title}</h3>
+                      <h3 className="font-semibold text-ink">{a.title}</h3>
                       <span className={STATUS_BADGE[status] || (isOverdue ? 'badge-red' : 'badge-yellow')}>
                         {status || (isOverdue ? 'Overdue' : 'Pending')}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-500 mt-0.5">
+                    <p className="text-sm text-muted mt-0.5">
                       {a.subject} • {a.assignment_type} • {a.max_marks} marks
                       {a.due_date && ` • Due: ${new Date(a.due_date).toLocaleDateString()}`}
                     </p>
-                    <p className="text-sm text-gray-600 mt-1 line-clamp-2">{a.description}</p>
+                    <p className="text-sm text-muted mt-1 line-clamp-2">{a.description}</p>
                     {status === 'graded' && (
                       <div className="mt-2 p-2 bg-green-50 rounded-lg">
                         <span className="text-green-700 text-sm font-medium">
@@ -133,28 +133,28 @@ export default function StudentAssignments() {
       {/* Submission Modal */}
       {selected && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl my-4">
-            <div className="p-5 border-b border-gray-100 flex items-start justify-between">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-2xl my-4">
+            <div className="p-5 border-b border-line flex items-start justify-between">
               <div>
-                <h2 className="font-bold text-gray-900">{selected.title}</h2>
-                <p className="text-sm text-gray-500">{selected.subject} • {selected.max_marks} marks</p>
+                <h2 className="font-bold text-ink">{selected.title}</h2>
+                <p className="text-sm text-muted">{selected.subject} • {selected.max_marks} marks</p>
               </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 p-1">
+              <button onClick={() => setSelected(null)} className="text-faint hover:text-muted p-1">
                 <X size={20} />
               </button>
             </div>
             <div className="p-5 space-y-4">
-              <div className="p-3 bg-blue-50 rounded-lg text-sm text-gray-800 border border-blue-100">
+              <div className="p-3 bg-blue-50 rounded-lg text-sm text-ink border border-blue-100">
                 <Markdown>{selected.description}</Markdown>
                 {selected.instructions && (
-                  <p className="mt-2 pt-2 border-t border-blue-100 text-gray-600">
+                  <p className="mt-2 pt-2 border-t border-blue-100 text-muted">
                     <span className="font-semibold">Additional instructions:</span> {selected.instructions}
                   </p>
                 )}
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Your Answer</label>
+                <label className="block text-sm font-medium text-ink/90 mb-2">Your Answer</label>
                 <textarea
                   value={submitForm.content}
                   onChange={(e) => setSubmitForm({ ...submitForm, content: e.target.value })}
@@ -165,14 +165,14 @@ export default function StudentAssignments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink/90 mb-1">
                   Attach File (optional)
                 </label>
                 <input
                   type="file"
                   accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png"
                   onChange={(e) => setSubmitForm({ ...submitForm, file: e.target.files[0] })}
-                  className="w-full text-sm text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-200 file:text-sm file:bg-gray-50 hover:file:bg-gray-100"
+                  className="w-full text-sm text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-line file:text-sm file:bg-surface-3/60 hover:file:bg-surface-3"
                 />
               </div>
 

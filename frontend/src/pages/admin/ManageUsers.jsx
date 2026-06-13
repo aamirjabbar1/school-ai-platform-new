@@ -187,7 +187,7 @@ export default function ManageUsers() {
       {/* Controls */}
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <div className="relative flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
           <input
             type="text"
             value={search}
@@ -214,13 +214,13 @@ export default function ManageUsers() {
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-5">
         {[
-          { label: 'Students', count: users.filter((u) => u.role === 'student').length, color: 'blue' },
-          { label: 'Teachers', count: users.filter((u) => u.role === 'teacher').length, color: 'emerald' },
-          { label: 'Admins', count: users.filter((u) => u.role === 'admin').length, color: 'purple' },
-        ].map(({ label, count, color }) => (
-          <div key={label} className={`card p-3 border-l-4 border-${color}-500`}>
-            <div className="text-xl font-bold text-gray-900">{count}</div>
-            <div className="text-xs text-gray-500">{label}</div>
+          { label: 'Students', count: users.filter((u) => u.role === 'student').length, accent: 'border-brand-blue' },
+          { label: 'Teachers', count: users.filter((u) => u.role === 'teacher').length, accent: 'border-emerald-500' },
+          { label: 'Admins', count: users.filter((u) => u.role === 'admin').length, accent: 'border-brand-purple' },
+        ].map(({ label, count, accent }) => (
+          <div key={label} className={`card p-3 border-l-4 ${accent}`}>
+            <div className="text-xl font-bold text-ink">{count}</div>
+            <div className="text-xs text-muted">{label}</div>
           </div>
         ))}
       </div>
@@ -229,45 +229,45 @@ export default function ManageUsers() {
       <div className="card overflow-hidden p-0">
         {loading ? (
           <div className="p-6 space-y-3">
-            {[1,2,3,4,5].map((i) => <div key={i} className="h-14 bg-gray-100 rounded-lg animate-pulse" />)}
+            {[1,2,3,4,5].map((i) => <div key={i} className="h-14 bg-surface-3 rounded-lg animate-pulse" />)}
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-12">
-            <Users size={40} className="mx-auto mb-3 text-gray-300" />
-            <p className="text-gray-500">No users found</p>
+            <Users size={40} className="mx-auto mb-3 text-faint" />
+            <p className="text-muted">No users found</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-100">
+              <thead className="bg-surface-3/60 border-b border-line">
                 <tr>
-                  <th className="text-left p-4 font-semibold text-gray-600">Name</th>
-                  <th className="text-left p-4 font-semibold text-gray-600">Login ID</th>
-                  <th className="text-left p-4 font-semibold text-gray-600">Role</th>
-                  <th className="text-left p-4 font-semibold text-gray-600 hidden md:table-cell">Class/Subject</th>
-                  <th className="text-left p-4 font-semibold text-gray-600">Status</th>
-                  <th className="text-right p-4 font-semibold text-gray-600">Actions</th>
+                  <th className="text-left p-4 font-semibold text-muted">Name</th>
+                  <th className="text-left p-4 font-semibold text-muted">Login ID</th>
+                  <th className="text-left p-4 font-semibold text-muted">Role</th>
+                  <th className="text-left p-4 font-semibold text-muted hidden md:table-cell">Class/Subject</th>
+                  <th className="text-left p-4 font-semibold text-muted">Status</th>
+                  <th className="text-right p-4 font-semibold text-muted">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
                 {filtered.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={user.id} className="hover:bg-surface-3/60 transition-colors">
                     <td className="p-4">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 text-sm font-bold shrink-0">
                           {user.name.charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <div className="font-medium text-gray-900">{user.name}</div>
-                          <div className="text-xs text-gray-400">{user.email || '—'}</div>
+                          <div className="font-medium text-ink">{user.name}</div>
+                          <div className="text-xs text-faint">{user.email || '—'}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="p-4 font-mono text-xs text-gray-700">{user.login_id}</td>
+                    <td className="p-4 font-mono text-xs text-ink/90">{user.login_id}</td>
                     <td className="p-4">
                       <span className={ROLE_COLOR[user.role] || 'badge-gray'}>{user.role}</span>
                     </td>
-                    <td className="p-4 hidden md:table-cell text-gray-500 text-xs">
+                    <td className="p-4 hidden md:table-cell text-muted text-xs">
                       {user.class_name || user.subjects?.slice(0, 2).join(', ') || '—'}
                     </td>
                     <td className="p-4">
@@ -277,13 +277,13 @@ export default function ManageUsers() {
                     </td>
                     <td className="p-4">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openEdit(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-blue-600" title="Edit user">
+                        <button onClick={() => openEdit(user)} className="p-1.5 rounded hover:bg-surface-3 text-faint hover:text-blue-600" title="Edit user">
                           <Edit2 size={14} />
                         </button>
-                        <button onClick={() => openResetPassword(user)} className="p-1.5 rounded hover:bg-gray-100 text-gray-400 hover:text-orange-600" title="Reset password">
+                        <button onClick={() => openResetPassword(user)} className="p-1.5 rounded hover:bg-surface-3 text-faint hover:text-orange-600" title="Reset password">
                           <KeyRound size={14} />
                         </button>
-                        <button onClick={() => toggleActive(user)} className={`p-1.5 rounded hover:bg-gray-100 ${user.is_active ? 'text-gray-400 hover:text-red-600' : 'text-gray-400 hover:text-green-600'}`}>
+                        <button onClick={() => toggleActive(user)} className={`p-1.5 rounded hover:bg-surface-3 ${user.is_active ? 'text-faint hover:text-red-600' : 'text-faint hover:text-green-600'}`}>
                           {user.is_active ? <UserX size={14} /> : <UserCheck size={14} />}
                         </button>
                       </div>
@@ -299,36 +299,36 @@ export default function ManageUsers() {
       {/* Import Result Modal */}
       {importResult && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col">
             <div className="p-5 border-b flex items-center justify-between bg-green-50">
               <div className="flex items-center gap-3">
                 <CheckCircle size={24} className="text-green-600" />
                 <div>
-                  <h2 className="font-bold text-gray-900">Import Complete</h2>
-                  <p className="text-sm text-gray-600">{importResult.created} accounts created, {importResult.skipped} skipped</p>
+                  <h2 className="font-bold text-ink">Import Complete</h2>
+                  <p className="text-sm text-muted">{importResult.created} accounts created, {importResult.skipped} skipped</p>
                 </div>
               </div>
-              <button onClick={() => setImportResult(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <button onClick={() => setImportResult(null)} className="text-faint hover:text-muted"><X size={20} /></button>
             </div>
 
             <div className="overflow-y-auto flex-1 p-5">
               {importResult.created_list?.length > 0 && (
                 <div className="mb-4">
-                  <h3 className="font-semibold text-sm text-gray-700 mb-2">Created Accounts ({importResult.created_list.length})</h3>
+                  <h3 className="font-semibold text-sm text-ink/90 mb-2">Created Accounts ({importResult.created_list.length})</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
-                        <tr className="bg-gray-50">
+                        <tr className="bg-surface-3/60">
                           <th className="text-left p-2 font-semibold">#</th>
                           <th className="text-left p-2 font-semibold">Name</th>
                           <th className="text-left p-2 font-semibold">Login ID</th>
                           <th className="text-left p-2 font-semibold">Role</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100">
+                      <tbody className="divide-y divide-line">
                         {importResult.created_list.map((u, i) => (
-                          <tr key={i} className="hover:bg-gray-50">
-                            <td className="p-2 text-gray-400">{i + 1}</td>
+                          <tr key={i} className="hover:bg-surface-3/60">
+                            <td className="p-2 text-faint">{i + 1}</td>
                             <td className="p-2 font-medium">{u.name}</td>
                             <td className="p-2 font-mono text-blue-600">{u.login_id}</td>
                             <td className="p-2"><span className={ROLE_COLOR[u.role] || 'badge-gray'}>{u.role}</span></td>
@@ -368,26 +368,26 @@ export default function ManageUsers() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-md">
             <div className="p-5 border-b flex items-center justify-between">
-              <h2 className="font-bold text-gray-900">{editUser ? 'Edit User' : 'Add New User'}</h2>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <h2 className="font-bold text-ink">{editUser ? 'Edit User' : 'Add New User'}</h2>
+              <button onClick={() => setShowModal(false)} className="text-faint hover:text-muted"><X size={20} /></button>
             </div>
             <div className="p-5 space-y-3">
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Full Name *</label>
                 <input type="text" value={form.name} onChange={(e) => setF('name', e.target.value)} className="input-field" placeholder="Enter full name" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Login ID *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Login ID *</label>
                   <input type="text" value={form.login_id} onChange={(e) => setF('login_id', e.target.value)} className="input-field" placeholder="e.g. STU001" disabled={!!editUser} />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Role *</label>
                   <select value={form.role} onChange={(e) => setF('role', e.target.value)} className="input-field capitalize">
                     {ROLES.map((r) => <option key={r} value={r} className="capitalize">{r}</option>)}
                   </select>
@@ -395,17 +395,17 @@ export default function ManageUsers() {
               </div>
               {!editUser && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Password *</label>
                   <input type="password" value={form.password} onChange={(e) => setF('password', e.target.value)} className="input-field" placeholder="Set initial password" />
                 </div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Email</label>
                 <input type="email" value={form.email} onChange={(e) => setF('email', e.target.value)} className="input-field" placeholder="Optional email" />
               </div>
               {form.role === 'student' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Class</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Class</label>
                   <select value={form.class_name} onChange={(e) => setF('class_name', e.target.value)} className="input-field">
                     <option value="">Select class</option>
                     {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -414,7 +414,7 @@ export default function ManageUsers() {
               )}
               {form.role === 'teacher' && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Subjects</label>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Subjects</label>
                   <div className="grid grid-cols-2 gap-1.5">
                     {SUBJECTS.map((s) => (
                       <label key={s} className="flex items-center gap-2 text-xs cursor-pointer">
@@ -449,20 +449,20 @@ export default function ManageUsers() {
       {/* Reset Password Modal */}
       {resetTarget && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-sm">
             <div className="p-5 border-b flex items-center justify-between">
               <div>
-                <h2 className="font-bold text-gray-900">Reset Password</h2>
-                <p className="text-sm text-gray-500 mt-0.5">{resetTarget.name} · {resetTarget.login_id}</p>
+                <h2 className="font-bold text-ink">Reset Password</h2>
+                <p className="text-sm text-muted mt-0.5">{resetTarget.name} · {resetTarget.login_id}</p>
               </div>
-              <button onClick={() => setResetTarget(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <button onClick={() => setResetTarget(null)} className="text-faint hover:text-muted"><X size={20} /></button>
             </div>
             <div className="p-5 space-y-3">
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">New Password *</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">New Password *</label>
                 <div className="relative">
                   <input
                     type={showResetPass ? 'text' : 'password'}
@@ -475,7 +475,7 @@ export default function ManageUsers() {
                   <button
                     type="button"
                     onClick={() => setShowResetPass(!showResetPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-muted"
                   >
                     {showResetPass ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>

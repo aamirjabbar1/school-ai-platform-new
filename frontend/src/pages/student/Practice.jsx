@@ -100,31 +100,31 @@ export default function Practice() {
       {stage === 'setup' && (
         <div className="max-w-xl">
           <div className="mb-5">
-            <h2 className="font-semibold text-gray-800 flex items-center gap-2"><Sparkles size={18} className="text-blue-600" /> Generate a Practice Test</h2>
-            <p className="text-sm text-gray-500">The AI creates questions from your school's books and past papers, then grades your answers with feedback.</p>
+            <h2 className="font-semibold text-ink flex items-center gap-2"><Sparkles size={18} className="text-blue-600" /> Generate a Practice Test</h2>
+            <p className="text-sm text-muted">The AI creates questions from your school's books and past papers, then grades your answers with feedback.</p>
           </div>
           <div className="card space-y-4">
             <div className="grid sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Subject *</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
                 <select value={form.subject} onChange={(e) => setF('subject', e.target.value)} className="input-field">
                   {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Difficulty</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Difficulty</label>
                 <select value={form.difficulty} onChange={(e) => setF('difficulty', e.target.value)} className="input-field">
                   {DIFFICULTIES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Number of Questions</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Number of Questions</label>
                 <select value={form.num_questions} onChange={(e) => setF('num_questions', e.target.value)} className="input-field">
                   {COUNTS.map((c) => <option key={c} value={c}>{c} questions</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Topic (optional)</label>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Topic (optional)</label>
                 <input type="text" value={form.topics} onChange={(e) => setF('topics', e.target.value)} className="input-field" placeholder="e.g. Photosynthesis" />
               </div>
             </div>
@@ -140,23 +140,23 @@ export default function Practice() {
         <div className="max-w-3xl">
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div>
-              <h2 className="font-semibold text-gray-800">{test.title}</h2>
-              <p className="text-sm text-gray-500">Answer the questions, then submit for AI grading.</p>
+              <h2 className="font-semibold text-ink">{test.title}</h2>
+              <p className="text-sm text-muted">Answer the questions, then submit for AI grading.</p>
             </div>
-            <span className="text-sm text-gray-500">{answeredCount}/{test.questions.length} answered</span>
+            <span className="text-sm text-muted">{answeredCount}/{test.questions.length} answered</span>
           </div>
 
           <div className="space-y-3">
             {test.questions.map((q) => (
               <div key={q.number} className="card">
-                <p className="text-sm font-medium text-gray-800">
+                <p className="text-sm font-medium text-ink">
                   Q{q.number}. {q.question}
-                  <span className="ml-2 text-xs text-gray-400">({q.marks} marks)</span>
+                  <span className="ml-2 text-xs text-faint">({q.marks} marks)</span>
                 </p>
                 {q.options?.length ? (
                   <div className="mt-3 space-y-1.5">
                     {q.options.map((opt, j) => (
-                      <label key={j} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-sm transition-colors ${answers[q.number] === opt ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+                      <label key={j} className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer text-sm transition-colors ${answers[q.number] === opt ? 'border-blue-500 bg-blue-50' : 'border-line hover:bg-surface-3/60'}`}>
                         <input
                           type="radio"
                           name={`q-${q.number}`}
@@ -198,8 +198,8 @@ export default function Practice() {
                 <span className="text-lg font-bold leading-none">{pct}%</span>
               </div>
               <div className="flex-1">
-                <h2 className="font-semibold text-gray-800 flex items-center gap-2"><Award size={18} className="text-amber-500" /> {result.total_score} / {result.total_max} marks</h2>
-                <p className="text-sm text-gray-600 mt-1">{result.overall_feedback}</p>
+                <h2 className="font-semibold text-ink flex items-center gap-2"><Award size={18} className="text-amber-500" /> {result.total_score} / {result.total_max} marks</h2>
+                <p className="text-sm text-muted mt-1">{result.overall_feedback}</p>
               </div>
             </div>
             {result.weak_topics?.length > 0 && (
@@ -222,13 +222,13 @@ export default function Practice() {
                   <div className="flex items-start gap-2">
                     {correct ? <CheckCircle size={18} className="text-green-600 shrink-0 mt-0.5" /> : <XCircle size={18} className="text-red-500 shrink-0 mt-0.5" />}
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800">
+                      <p className="text-sm font-medium text-ink">
                         Q{q.number}. {q.question}
-                        <span className="ml-2 text-xs text-gray-400">({r.score ?? 0}/{r.max_marks ?? q.marks} marks)</span>
+                        <span className="ml-2 text-xs text-faint">({r.score ?? 0}/{r.max_marks ?? q.marks} marks)</span>
                       </p>
-                      <p className="text-xs text-gray-500 mt-1"><span className="font-medium text-gray-600">Your answer:</span> {(answers[q.number] || '').trim() || '(blank)'}</p>
+                      <p className="text-xs text-muted mt-1"><span className="font-medium text-muted">Your answer:</span> {(answers[q.number] || '').trim() || '(blank)'}</p>
                       <p className="text-xs text-green-700 mt-0.5"><span className="font-medium">Model answer:</span> {keyByNum(q.number).correct_answer}</p>
-                      {r.feedback && <p className="text-xs text-gray-600 mt-1 p-2 bg-gray-50 rounded">{r.feedback}</p>}
+                      {r.feedback && <p className="text-xs text-muted mt-1 p-2 bg-surface-3/60 rounded">{r.feedback}</p>}
                     </div>
                   </div>
                 </div>

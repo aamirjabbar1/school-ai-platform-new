@@ -84,16 +84,16 @@ export default function TeacherAssignments() {
       )}
 
       <div className="mb-5">
-        <h2 className="font-semibold text-gray-800">Your Assignments</h2>
-        <p className="text-sm text-gray-500">Review student submissions and grade them.</p>
+        <h2 className="font-semibold text-ink">Your Assignments</h2>
+        <p className="text-sm text-muted">Review student submissions and grade them.</p>
       </div>
 
       {loading ? (
-        <div className="grid gap-3">{[1, 2, 3].map((i) => <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />)}</div>
+        <div className="grid gap-3">{[1, 2, 3].map((i) => <div key={i} className="h-24 bg-surface-3 rounded-xl animate-pulse" />)}</div>
       ) : assignments.length === 0 ? (
         <div className="card text-center py-12">
-          <BookOpen size={40} className="mx-auto mb-3 text-gray-300" />
-          <p className="text-gray-500">No assignments yet</p>
+          <BookOpen size={40} className="mx-auto mb-3 text-faint" />
+          <p className="text-muted">No assignments yet</p>
         </div>
       ) : (
         <div className="grid gap-3">
@@ -104,15 +104,15 @@ export default function TeacherAssignments() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-semibold text-gray-800">{a.title}</h3>
+                      <h3 className="font-semibold text-ink">{a.title}</h3>
                       <span className="badge-blue capitalize">{a.assignment_type}</span>
                       {c.review > 0 && <span className="badge-yellow">{c.review} to review</span>}
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted mt-1">
                       {a.subject} • {a.class_name} • {a.max_marks} marks
                       {a.due_date && ` • Due ${new Date(a.due_date).toLocaleDateString()}`}
                     </p>
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-500">
+                    <div className="flex items-center gap-3 mt-1.5 text-xs text-muted">
                       <span className="flex items-center gap-1"><FileText size={12} /> {c.total} submitted</span>
                       <span className="flex items-center gap-1 text-green-600"><CheckCircle size={12} /> {c.graded} graded</span>
                       {c.review > 0 && <span className="flex items-center gap-1 text-yellow-600"><Clock size={12} /> {c.review} pending</span>}
@@ -131,13 +131,13 @@ export default function TeacherAssignments() {
       {/* Submissions / grading modal */}
       {selected && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl my-4">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-3xl my-4">
             <div className="p-5 border-b flex items-start justify-between">
               <div>
-                <h2 className="font-bold text-gray-900">{selected.title}</h2>
-                <p className="text-sm text-gray-500">{selected.subject} • {selected.class_name} • {selected.max_marks} marks</p>
+                <h2 className="font-bold text-ink">{selected.title}</h2>
+                <p className="text-sm text-muted">{selected.subject} • {selected.class_name} • {selected.max_marks} marks</p>
               </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 p-1"><X size={20} /></button>
+              <button onClick={() => setSelected(null)} className="text-faint hover:text-muted p-1"><X size={20} /></button>
             </div>
 
             <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
@@ -145,12 +145,12 @@ export default function TeacherAssignments() {
 
               {/* Assignment brief */}
               {selected.description && (
-                <details className="p-3 bg-blue-50 rounded-lg border border-blue-100 text-sm text-gray-800" open>
-                  <summary className="cursor-pointer font-semibold text-gray-700 mb-1">Assignment brief</summary>
+                <details className="p-3 bg-blue-50 rounded-lg border border-blue-100 text-sm text-ink" open>
+                  <summary className="cursor-pointer font-semibold text-ink/90 mb-1">Assignment brief</summary>
                   <div className="mt-2">
                     <Markdown>{selected.description}</Markdown>
                     {selected.instructions && (
-                      <p className="mt-2 pt-2 border-t border-blue-100 text-gray-600">
+                      <p className="mt-2 pt-2 border-t border-blue-100 text-muted">
                         <span className="font-semibold">Instructions:</span> {selected.instructions}
                       </p>
                     )}
@@ -158,10 +158,10 @@ export default function TeacherAssignments() {
                 </details>
               )}
 
-              <h3 className="text-sm font-semibold text-gray-700">Submissions</h3>
+              <h3 className="text-sm font-semibold text-ink/90">Submissions</h3>
 
               {(selected.submissions || []).length === 0 ? (
-                <div className="text-center py-8 text-gray-400">
+                <div className="text-center py-8 text-faint">
                   <FileText size={32} className="mx-auto mb-2 opacity-40" />
                   <p className="text-sm">No submissions yet</p>
                 </div>
@@ -170,28 +170,28 @@ export default function TeacherAssignments() {
                   const url = fileUrl(s.file_path);
                   const input = gradeInputs[s.id] || { grade: '', feedback: '' };
                   return (
-                    <div key={s.id} className="border border-gray-200 rounded-xl p-4">
+                    <div key={s.id} className="border border-line rounded-xl p-4">
                       <div className="flex items-center gap-2 flex-wrap mb-2">
-                        <span className="font-semibold text-gray-800 text-sm">{s.student_name}</span>
+                        <span className="font-semibold text-ink text-sm">{s.student_name}</span>
                         <span className={s.status === 'graded' ? 'badge-green' : 'badge-blue'}>{s.status}</span>
-                        {s.submitted_at && <span className="text-xs text-gray-400">{new Date(s.submitted_at).toLocaleString()}</span>}
+                        {s.submitted_at && <span className="text-xs text-faint">{new Date(s.submitted_at).toLocaleString()}</span>}
                         {s.status === 'graded' && <span className="badge-purple ml-auto"><Award size={10} className="mr-1" /> {s.grade}/{selected.max_marks}</span>}
                       </div>
 
                       {s.content && (
-                        <div className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap max-h-60 overflow-y-auto">{s.content}</div>
+                        <div className="text-sm text-ink/90 bg-surface-3/60 rounded-lg p-3 whitespace-pre-wrap max-h-60 overflow-y-auto">{s.content}</div>
                       )}
                       {url && (
                         <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:underline mt-2">
                           <Download size={13} /> {s.file_name || 'Attached file'}
                         </a>
                       )}
-                      {!s.content && !url && <p className="text-xs text-gray-400 italic">No answer text or file submitted.</p>}
+                      {!s.content && !url && <p className="text-xs text-faint italic">No answer text or file submitted.</p>}
 
                       {/* Grading */}
-                      <div className="mt-3 pt-3 border-t border-gray-100 grid sm:grid-cols-[120px_1fr_auto] gap-2 items-end">
+                      <div className="mt-3 pt-3 border-t border-line grid sm:grid-cols-[120px_1fr_auto] gap-2 items-end">
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Grade (/{selected.max_marks})</label>
+                          <label className="block text-xs font-medium text-muted mb-1">Grade (/{selected.max_marks})</label>
                           <input
                             type="number" min="0" max={selected.max_marks}
                             value={input.grade}
@@ -200,7 +200,7 @@ export default function TeacherAssignments() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-medium text-gray-600 mb-1">Feedback</label>
+                          <label className="block text-xs font-medium text-muted mb-1">Feedback</label>
                           <input
                             type="text"
                             value={input.feedback}

@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
 import { authAPI } from '../services/api';
+import AuroraBackground from '../components/AuroraBackground';
+import ThemeToggle from '../components/ThemeToggle';
 import { KeyRound, Eye, EyeOff, Loader2, ShieldAlert } from 'lucide-react';
 
 export default function ForceChangePassword() {
@@ -39,30 +42,43 @@ export default function ForceChangePassword() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-      <div className="w-full max-w-md">
+    <div className="relative min-h-screen flex items-center justify-center p-4 text-ink overflow-hidden">
+      <AuroraBackground />
+      <div className="absolute top-4 right-4 z-20">
+        <ThemeToggle />
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 18, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.45, ease: 'easeOut' }}
+        className="w-full max-w-md"
+      >
         <div className="card">
           {/* Header */}
           <div className="flex flex-col items-center text-center mb-6">
-            <div className="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center mb-3">
-              <ShieldAlert size={28} className="text-orange-600" />
+            <div className="relative mb-3">
+              <div className="absolute -inset-1.5 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 blur opacity-60 animate-glow-pulse" />
+              <div className="relative w-14 h-14 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center text-white">
+                <ShieldAlert size={28} />
+              </div>
             </div>
-            <h1 className="text-xl font-bold text-gray-900">Set Your New Password</h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <h1 className="font-display text-xl font-bold text-ink">Set Your New Password</h1>
+            <p className="text-sm text-muted mt-1">
               Your account requires a password change before you can continue.
             </p>
           </div>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-              <div className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
-              <p className="text-red-700 text-sm">{error}</p>
+            <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2">
+              <div className="w-2 h-2 bg-rose-500 rounded-full shrink-0" />
+              <p className="text-rose-500 dark:text-rose-300 text-sm">{error}</p>
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
+              <label className="block text-sm font-medium text-ink/80 mb-1.5">New Password</label>
               <div className="relative">
                 <input
                   type={showNew ? 'text' : 'password'}
@@ -76,7 +92,8 @@ export default function ForceChangePassword() {
                 <button
                   type="button"
                   onClick={() => setShowNew(!showNew)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-ink transition-colors"
+                  aria-label={showNew ? 'Hide password' : 'Show password'}
                 >
                   {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -84,7 +101,7 @@ export default function ForceChangePassword() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Confirm Password</label>
+              <label className="block text-sm font-medium text-ink/80 mb-1.5">Confirm Password</label>
               <div className="relative">
                 <input
                   type={showConfirm ? 'text' : 'password'}
@@ -97,7 +114,8 @@ export default function ForceChangePassword() {
                 <button
                   type="button"
                   onClick={() => setShowConfirm(!showConfirm)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-ink transition-colors"
+                  aria-label={showConfirm ? 'Hide password' : 'Show password'}
                 >
                   {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -107,7 +125,7 @@ export default function ForceChangePassword() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full flex items-center justify-center gap-2 py-2.5 mt-2"
+              className="btn-primary w-full py-2.5 mt-2"
             >
               {loading ? (
                 <><Loader2 size={18} className="animate-spin" /> Updating...</>
@@ -120,13 +138,13 @@ export default function ForceChangePassword() {
           <div className="mt-4 text-center">
             <button
               onClick={logout}
-              className="text-xs text-gray-400 hover:text-gray-600 underline"
+              className="text-xs text-faint hover:text-ink underline transition-colors"
             >
               Sign out instead
             </button>
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

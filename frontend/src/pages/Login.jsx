@@ -1,9 +1,18 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
-import { GraduationCap, Eye, EyeOff, Loader2, BookOpen, Brain, Shield } from 'lucide-react';
+import AuroraBackground from '../components/AuroraBackground';
+import ThemeToggle from '../components/ThemeToggle';
+import { Eye, EyeOff, Loader2, BookOpen, Brain, Shield, Sparkles, ArrowRight } from 'lucide-react';
 
 const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
+
+const FEATURES = [
+  { icon: Brain, title: 'Curriculum-Aligned AI', desc: 'Answers grounded in your school books' },
+  { icon: BookOpen, title: 'Smart Assignments', desc: 'AI-built tasks matched to your syllabus' },
+  { icon: Shield, title: 'Secure & Private', desc: 'Role-based access for the whole school' },
+];
 
 export default function Login() {
   const { login } = useAuth();
@@ -29,81 +38,101 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left Panel */}
-      <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-blue-800 to-blue-950 text-white flex-col justify-between p-12">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-white rounded-xl overflow-hidden flex items-center justify-center">
-            <img src="/logo.jpeg" alt="LSS Logo" className="w-full h-full object-contain" style={{mixBlendMode:'multiply'}} />
-          </div>
-          <div>
-            <div className="font-bold text-lg">{SCHOOL_NAME}</div>
-            <div className="text-blue-300 text-xs">AI Learning Platform</div>
-          </div>
-        </div>
+    <div className="relative min-h-screen flex items-center justify-center p-4 text-ink overflow-hidden">
+      <AuroraBackground stars={48} />
 
-        <div className="space-y-8">
-          <div>
-            <h1 className="text-4xl font-bold leading-tight mb-4">
-              Empowering Education<br />with Artificial Intelligence
-            </h1>
-            <p className="text-blue-200 text-lg">
-              A smart learning platform designed specifically for students, teachers, and staff — powered by AI, guided by curriculum.
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            {[
-              { icon: Brain, title: 'Curriculum-Aligned AI', desc: 'Answers strictly from school books and materials' },
-              { icon: BookOpen, title: 'Smart Assignments', desc: 'AI-generated assignments aligned to your syllabus' },
-              { icon: Shield, title: 'Secure & Private', desc: 'Role-based access for students, teachers & admins' },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="flex items-start gap-3 p-3 bg-white/10 rounded-xl">
-                <div className="w-9 h-9 bg-white/20 rounded-lg flex items-center justify-center shrink-0">
-                  <Icon size={18} />
-                </div>
-                <div>
-                  <div className="font-semibold text-sm">{title}</div>
-                  <div className="text-blue-200 text-xs">{desc}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="text-blue-400 text-xs">
-          © {new Date().getFullYear()} {SCHOOL_NAME}. All rights reserved.
-        </div>
+      <div className="absolute top-4 right-4 z-20">
+        <ThemeToggle />
       </div>
 
-      {/* Right Panel - Login Form */}
-      <div className="flex-1 flex items-center justify-center p-6 bg-gray-50">
-        <div className="w-full max-w-md">
-          {/* Mobile Logo */}
-          <div className="lg:hidden text-center mb-8">
-            <div className="w-16 h-16 bg-white rounded-2xl overflow-hidden flex items-center justify-center mx-auto mb-3 shadow">
-              <img src="/logo.jpeg" alt="LSS Logo" className="w-full h-full object-contain" style={{mixBlendMode:'multiply'}} />
+      <motion.div
+        initial={{ opacity: 0, y: 20, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.5, ease: 'easeOut' }}
+        className="w-full max-w-5xl grid lg:grid-cols-2 rounded-4xl overflow-hidden glass-strong shadow-glow-lg"
+      >
+        {/* Brand panel */}
+        <div className="relative hidden lg:flex flex-col justify-between p-10 overflow-hidden">
+          <div className="absolute inset-0 bg-gradient-to-br from-brand-blue/90 via-brand-violet/80 to-brand-teal/70" />
+          <div className="absolute -bottom-24 -right-24 w-72 h-72 rounded-full bg-white/15 blur-3xl animate-float" />
+          <div className="relative z-10 flex items-center gap-3 text-white">
+            <div className="w-12 h-12 bg-white rounded-2xl overflow-hidden flex items-center justify-center">
+              <img src="/logo.jpeg" alt="LSS Logo" className="w-full h-full object-contain" style={{ mixBlendMode: 'multiply' }} />
             </div>
-            <h1 className="text-xl font-bold text-gray-900">{SCHOOL_NAME}</h1>
-            <p className="text-gray-500 text-sm">AI Learning Platform</p>
+            <div>
+              <div className="font-display font-bold text-lg">{SCHOOL_NAME}</div>
+              <div className="text-white/80 text-xs flex items-center gap-1">
+                <Sparkles size={11} /> AI Learning Platform
+              </div>
+            </div>
           </div>
 
-          <div className="card">
+          <div className="relative z-10 text-white space-y-7">
+            <div>
+              <h1 className="font-display text-4xl font-bold leading-tight mb-3">
+                Learning, <span className="text-yellow-200">reimagined</span> with AI
+              </h1>
+              <p className="text-white/85 text-base">
+                Your personal AI tutor — guided by your curriculum, available any time, for every subject.
+              </p>
+            </div>
+            <div className="space-y-3">
+              {FEATURES.map(({ icon: Icon, title, desc }, i) => (
+                <motion.div
+                  key={title}
+                  initial={{ opacity: 0, x: -16 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.3 + i * 0.12 }}
+                  className="flex items-start gap-3 p-3 rounded-2xl bg-white/10 backdrop-blur-sm border border-white/15"
+                >
+                  <div className="w-9 h-9 bg-white/20 rounded-xl flex items-center justify-center shrink-0">
+                    <Icon size={18} />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">{title}</div>
+                    <div className="text-white/75 text-xs">{desc}</div>
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+
+          <div className="relative z-10 text-white/60 text-xs">
+            © {new Date().getFullYear()} {SCHOOL_NAME}. All rights reserved.
+          </div>
+        </div>
+
+        {/* Login form */}
+        <div className="flex items-center justify-center p-7 sm:p-10">
+          <div className="w-full max-w-sm">
+            {/* Mobile brand */}
+            <div className="lg:hidden text-center mb-7">
+              <div className="w-16 h-16 bg-white rounded-2xl overflow-hidden flex items-center justify-center mx-auto mb-3 shadow-glow">
+                <img src="/logo.jpeg" alt="LSS Logo" className="w-full h-full object-contain" style={{ mixBlendMode: 'multiply' }} />
+              </div>
+              <h1 className="font-display text-xl font-bold text-ink">{SCHOOL_NAME}</h1>
+              <p className="text-muted text-sm">AI Learning Platform</p>
+            </div>
+
             <div className="mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">Welcome back</h2>
-              <p className="text-gray-500 text-sm mt-1">Sign in to your account to continue</p>
+              <h2 className="font-display text-2xl font-bold text-ink">Welcome back 👋</h2>
+              <p className="text-muted text-sm mt-1">Sign in to continue your learning journey</p>
             </div>
 
             {error && (
-              <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-                <div className="w-2 h-2 bg-red-500 rounded-full shrink-0" />
-                <p className="text-red-700 text-sm">{error}</p>
-              </div>
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-4 p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl flex items-center gap-2"
+              >
+                <div className="w-2 h-2 bg-rose-500 rounded-full shrink-0" />
+                <p className="text-rose-500 dark:text-rose-300 text-sm">{error}</p>
+              </motion.div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink/80 mb-1.5">
                   Student / Teacher ID
                 </label>
                 <input
@@ -118,7 +147,7 @@ export default function Login() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-ink/80 mb-1.5">
                   Password
                 </label>
                 <div className="relative">
@@ -133,7 +162,8 @@ export default function Login() {
                   <button
                     type="button"
                     onClick={() => setShowPass(!showPass)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-faint hover:text-ink transition-colors"
+                    aria-label={showPass ? 'Hide password' : 'Show password'}
                   >
                     {showPass ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
@@ -143,20 +173,18 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="btn-primary w-full flex items-center justify-center gap-2 py-2.5 mt-2"
+                className="btn-primary w-full py-2.5 mt-2 text-base"
               >
                 {loading ? (
                   <><Loader2 size={18} className="animate-spin" /> Signing in...</>
                 ) : (
-                  'Sign In'
+                  <>Sign In <ArrowRight size={18} /></>
                 )}
               </button>
             </form>
-
-
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
