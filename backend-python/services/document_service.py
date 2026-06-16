@@ -3,7 +3,7 @@ Document ingestion pipeline (Gemini-based extraction, vision-aware):
 
   1. Download file bytes from MinIO
   2. Extract text + figure descriptions via Google Gemini 2.5
-       PDF:  8 pages/chunk, max_output_tokens=16384, vision-enabled prompt
+    PDF:  6 pages/chunk, max_output_tokens=8192, vision-enabled prompt
        DOCX: 3000 words/batch, structuring pass
   3. Structure-aware chunking that respects pages/chapters/tables/figures
   4. Generate embeddings via OpenAI text-embedding-3-large
@@ -46,23 +46,17 @@ _SAFETY_SETTINGS = [
     types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
 ]
 
-# Smaller PDF slices so the model can output every word verbatim within
-# max_output_tokens. 8 pages × ~500 words = ~4000 words ≈ 6k output tokens;
-# figures and tables push this higher, so we leave plenty of headroom.
-_PDF_PAGES_PER_CHUNK = 8
-_PDF_MAX_TOKENS = 16384
-
-# Gemini caps inline request payloads at ~20MB. We aim much lower so the
-# extraction prompt + headers fit comfortably. 5MB raw → ~7MB base64 → safe.
-# The slicer halves the page count adaptively when a slice exceeds this.
-_PDF_TARGET_SLICE_BYTES = 5 * 1024 * 1024
+# Favor fewer, larger slices while staying under Gemini's 50MB PDF limit.
+_PDF_PAGES_PER_CHUNK = 6
+_PDF_MAX_TOKENS = 8192
+_PDF_TARGET_SLICE_BYTES = 35 * 1024 * 1024
+_PDF_CONCURRENCY = 3
 
 _DOCX_WORDS_PER_BATCH = 3000
 _DOCX_MAX_TOKENS = 8192
 
-# A short gap between sequential calls keeps us under Gemini's per-minute
-# request-rate limits on lower tiers.
-_INTER_CHUNK_DELAY_SECS = 1
+# Parallel extraction makes this delay unnecessary.
+_INTER_CHUNK_DELAY_SECS = 0
 
 _gemini_client: "genai.Client | None" = None
 
@@ -163,7 +157,7 @@ def _build_pdf_slice(reader, start: int, end: int) -> bytes:
 
 
 def _build_adaptive_slices(reader) -> list[tuple[int, int, bytes]]:
-    """Slice PDF into chunks of ≤ _PDF_PAGES_PER_CHUNK pages AND ≤ target bytes.
+    """Slice PDF into chunks of <= _PDF_PAGES_PER_CHUNK pages AND <= target bytes.
 
     Returns list of (start_1based, end_1based, slice_bytes).
     """
@@ -219,9 +213,10 @@ def _gemini_text(response) -> tuple[str, str]:
     """Pull text out of a Gemini response.
 
     Returns (text, status), where status is:
-      "ok"      → usable text was produced
-      "blocked" → a safety / recitation / prompt block stopped generation
-      "empty"   → the model returned no text for some other reason
+    "ok"        -> usable text was produced
+    "truncated" -> usable text was produced but hit max_output_tokens
+    "blocked"   -> a safety / recitation / prompt block stopped generation
+    "empty"     -> the model returned no text for some other reason
     """
     pf = getattr(response, "prompt_feedback", None)
     if pf is not None and getattr(pf, "block_reason", None):
@@ -235,11 +230,13 @@ def _gemini_text(response) -> tuple[str, str]:
     content = getattr(cand, "content", None)
     parts = getattr(content, "parts", None) or [] if content else []
     text = "".join((getattr(p, "text", "") or "") for p in parts)
+    finish = getattr(cand, "finish_reason", None)
+    finish_name = (getattr(finish, "name", None) or str(finish or "")).upper()
+    if text.strip() and "MAX_TOKENS" in finish_name:
+        return text, "truncated"
     if text.strip():
         return text, "ok"
 
-    finish = getattr(cand, "finish_reason", None)
-    finish_name = (getattr(finish, "name", None) or str(finish or "")).upper()
     blocked = {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "BLOCKLIST", "SPII"}
     return ("", "blocked") if finish_name in blocked else ("", "empty")
 
@@ -293,6 +290,10 @@ async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> 
     text, status = _gemini_text(resp)
     if status == "ok":
         return [text]
+    if status == "truncated" and (end - start) > 1:
+        return await _split_and_recurse(client, reader, start, end, "output truncated")
+    if status == "truncated":
+        return [text]
 
     # Blocked / empty → retry once without figure descriptions
     print(
@@ -313,6 +314,10 @@ async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> 
     text, status = _gemini_text(resp)
     if status == "ok":
         return [text]
+    if status == "truncated" and (end - start) > 1:
+        return await _split_and_recurse(client, reader, start, end, "output truncated")
+    if status == "truncated":
+        return [text]
 
     # Still blocked/empty → split if more than one page remains
     if (end - start) > 1:
@@ -330,7 +335,7 @@ async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> 
 
 
 async def _extract_pdf_gemini(data: bytes) -> str:
-    """Adaptive PDF slicing → Gemini 2.5 vision extraction.
+    """Adaptive PDF slicing -> concurrent Gemini vision extraction.
 
     Slices are capped by both page count (so output fits max_output_tokens) and
     raw byte size (so the inline request stays under Gemini's ~20MB limit).
@@ -351,12 +356,32 @@ async def _extract_pdf_gemini(data: bytes) -> str:
         f"largest slice: {max(len(s[2]) for s in slices) / 1024 / 1024:.1f} MB"
     )
 
+    semaphore = asyncio.Semaphore(_PDF_CONCURRENCY)
+
+    async def process_slice(idx: int, start_1: int, end_1: int, slice_bytes: bytes):
+        async with semaphore:
+            size_mb = len(slice_bytes) / 1024 / 1024
+            print(
+                f"[PDF extraction] slice {idx + 1}/{len(slices)} "
+                f"pages={start_1}-{end_1} size={size_mb:.1f}MB started"
+            )
+            sub_results = await _extract_slice_with_fallback(client, reader, start_1 - 1, end_1)
+            print(
+                f"[PDF extraction] slice {idx + 1}/{len(slices)} "
+                f"pages={start_1}-{end_1} done"
+            )
+            return idx, sub_results
+
+    tasks = [
+        process_slice(idx, start_1, end_1, slice_bytes)
+        for idx, (start_1, end_1, slice_bytes) in enumerate(slices)
+    ]
+    completed = await asyncio.gather(*tasks)
+    completed.sort(key=lambda item: item[0])
+
     results: list[str] = []
-    for idx, (start_1, end_1, _bytes) in enumerate(slices):
-        sub_results = await _extract_slice_with_fallback(client, reader, start_1 - 1, end_1)
+    for _, sub_results in completed:
         results.extend(sub_results)
-        if idx < len(slices) - 1:
-            await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
 
     return "\n\n".join(results)
 
