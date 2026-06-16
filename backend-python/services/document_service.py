@@ -22,6 +22,16 @@ import os
 import re
 import uuid
 
+try:
+    import httpcore
+except Exception:  # pragma: no cover - optional import for runtime-specific errors
+    httpcore = None
+
+try:
+    import httpx
+except Exception:  # pragma: no cover - optional import for runtime-specific errors
+    httpx = None
+
 from google import genai
 from google.genai import errors, types
 from sqlalchemy import select
@@ -58,6 +68,19 @@ _DOCX_MAX_TOKENS = 8192
 _GEMINI_RETRY_ATTEMPTS = 10
 _GEMINI_RETRY_BASE_DELAY_SECS = 5
 _GEMINI_RETRY_MAX_DELAY_SECS = 60
+
+_TRANSIENT_TRANSPORT_EXCEPTIONS = tuple(
+    exc
+    for exc in (
+        getattr(httpx, "RemoteProtocolError", None),
+        getattr(httpx, "ReadTimeout", None),
+        getattr(httpx, "ConnectError", None),
+        getattr(httpcore, "RemoteProtocolError", None),
+        getattr(httpcore, "ReadTimeout", None),
+        getattr(httpcore, "ConnectError", None),
+    )
+    if isinstance(exc, type)
+)
 
 # Parallel extraction makes this delay unnecessary.
 _INTER_CHUNK_DELAY_SECS = 10
@@ -205,6 +228,21 @@ async def _gemini_generate(client, contents: list, max_tokens: int):
                 delay = min(_GEMINI_RETRY_BASE_DELAY_SECS * (2 ** attempt), _GEMINI_RETRY_MAX_DELAY_SECS)
                 print(
                     f"[Gemini] transient error {code} → retry "
+                    f"{attempt + 1}/{_GEMINI_RETRY_ATTEMPTS} in {delay}s"
+                )
+                await asyncio.sleep(delay)
+                last_exc = exc
+                continue
+            raise
+        except Exception as exc:
+            if (
+                _TRANSIENT_TRANSPORT_EXCEPTIONS
+                and isinstance(exc, _TRANSIENT_TRANSPORT_EXCEPTIONS)
+                and attempt < (_GEMINI_RETRY_ATTEMPTS - 1)
+            ):
+                delay = min(_GEMINI_RETRY_BASE_DELAY_SECS * (2 ** attempt), _GEMINI_RETRY_MAX_DELAY_SECS)
+                print(
+                    f"[Gemini] transient transport error {type(exc).__name__} → retry "
                     f"{attempt + 1}/{_GEMINI_RETRY_ATTEMPTS} in {delay}s"
                 )
                 await asyncio.sleep(delay)
