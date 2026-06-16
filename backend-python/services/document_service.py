@@ -55,8 +55,12 @@ _PDF_CONCURRENCY = 1
 _DOCX_WORDS_PER_BATCH = 3000
 _DOCX_MAX_TOKENS = 8192
 
+_GEMINI_RETRY_ATTEMPTS = 10
+_GEMINI_RETRY_BASE_DELAY_SECS = 5
+_GEMINI_RETRY_MAX_DELAY_SECS = 60
+
 # Parallel extraction makes this delay unnecessary.
-_INTER_CHUNK_DELAY_SECS = 0
+_INTER_CHUNK_DELAY_SECS = 10
 
 _gemini_client: "genai.Client | None" = None
 
@@ -188,7 +192,7 @@ async def _gemini_generate(client, contents: list, max_tokens: int):
         safety_settings=_SAFETY_SETTINGS,
     )
     last_exc: Exception | None = None
-    for attempt in range(5):
+    for attempt in range(_GEMINI_RETRY_ATTEMPTS):
         try:
             return await client.aio.models.generate_content(
                 model=_GEMINI_MODEL,
@@ -197,9 +201,12 @@ async def _gemini_generate(client, contents: list, max_tokens: int):
             )
         except errors.APIError as exc:
             code = getattr(exc, "code", None)
-            if code in (429, 500, 502, 503, 504) and attempt < 4:
-                delay = min(2 ** attempt, 30)
-                print(f"[Gemini] transient error {code} → retry {attempt + 1}/5 in {delay}s")
+            if code in (429, 500, 502, 503, 504) and attempt < (_GEMINI_RETRY_ATTEMPTS - 1):
+                delay = min(_GEMINI_RETRY_BASE_DELAY_SECS * (2 ** attempt), _GEMINI_RETRY_MAX_DELAY_SECS)
+                print(
+                    f"[Gemini] transient error {code} → retry "
+                    f"{attempt + 1}/{_GEMINI_RETRY_ATTEMPTS} in {delay}s"
+                )
                 await asyncio.sleep(delay)
                 last_exc = exc
                 continue
