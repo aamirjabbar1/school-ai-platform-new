@@ -48,9 +48,9 @@ _SAFETY_SETTINGS = [
 
 # Favor fewer, larger slices while staying under Gemini's 50MB PDF limit.
 _PDF_PAGES_PER_CHUNK = 6
-_PDF_MAX_TOKENS = 8192
+_PDF_MAX_TOKENS = 16384
 _PDF_TARGET_SLICE_BYTES = 35 * 1024 * 1024
-_PDF_CONCURRENCY = 3
+_PDF_CONCURRENCY = 2
 
 _DOCX_WORDS_PER_BATCH = 3000
 _DOCX_MAX_TOKENS = 8192
@@ -247,6 +247,67 @@ def _is_too_large(exc: Exception) -> bool:
     return code == 413 or "request entity too large" in msg or "exceeds the maximum" in msg
 
 
+def _merge_with_overlap(base: str, addition: str, max_overlap: int = 1200) -> str:
+    """Append addition to base while removing duplicate overlap at the boundary."""
+    base = base or ""
+    addition = addition or ""
+    if not base.strip():
+        return addition
+    if not addition.strip():
+        return base
+
+    tail = base[-max_overlap:]
+    head = addition[:max_overlap]
+    best = 0
+    for k in range(min(len(tail), len(head)), 24, -1):
+        if tail[-k:] == head[:k]:
+            best = k
+            break
+    return base + addition[best:]
+
+
+def _local_single_page_text(reader, page_index: int) -> str:
+    """Best-effort local text extraction fallback for one page."""
+    try:
+        return (reader.pages[page_index].extract_text() or "").strip()
+    except Exception:
+        return ""
+
+
+async def _continue_single_page_truncated(
+    client,
+    pdf_part,
+    prompt: str,
+    offset_hint: str,
+    initial_text: str,
+) -> str:
+    """Ask Gemini to continue a truncated single-page extraction."""
+    combined = (initial_text or "").strip()
+    if not combined:
+        return ""
+
+    for _ in range(3):
+        tail = combined[-2000:]
+        continuation_prompt = (
+            prompt
+            + offset_hint
+            + "\n\nThe previous output was truncated. Continue from exactly where it stopped. "
+              "Do not repeat previously extracted content. Output plain extracted content only.\n\n"
+              "Previously extracted tail:\n"
+            + tail
+        )
+        resp = await _gemini_generate(client, [pdf_part, continuation_prompt], _PDF_MAX_TOKENS)
+        next_text, status = _gemini_text(resp)
+        next_text = (next_text or "").strip()
+        if not next_text:
+            break
+        combined = _merge_with_overlap(combined, next_text)
+        if status != "truncated":
+            break
+
+    return combined
+
+
 async def _split_and_recurse(client, reader, start: int, end: int, reason: str) -> list[str]:
     """Halve a page range and extract each half independently."""
     mid = start + max(1, (end - start) // 2)
@@ -293,7 +354,14 @@ async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> 
     if status == "truncated" and (end - start) > 1:
         return await _split_and_recurse(client, reader, start, end, "output truncated")
     if status == "truncated":
-        return [text]
+        continued = await _continue_single_page_truncated(
+            client,
+            pdf_part,
+            _EXTRACTION_PROMPT,
+            offset_hint,
+            text,
+        )
+        return [continued or text]
 
     # Blocked / empty → retry once without figure descriptions
     print(
@@ -317,11 +385,27 @@ async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> 
     if status == "truncated" and (end - start) > 1:
         return await _split_and_recurse(client, reader, start, end, "output truncated")
     if status == "truncated":
-        return [text]
+        continued = await _continue_single_page_truncated(
+            client,
+            pdf_part,
+            _EXTRACTION_PROMPT_PLAIN,
+            offset_hint,
+            text,
+        )
+        return [continued or text]
 
     # Still blocked/empty → split if more than one page remains
     if (end - start) > 1:
         return await _split_and_recurse(client, reader, start, end, f"output {status} persists")
+
+    # Single page unusable from Gemini -> try local extraction before placeholder.
+    local_text = _local_single_page_text(reader, start)
+    if local_text:
+        print(
+            f"[PDF extraction] page {start + 1} using local text fallback "
+            f"after Gemini status={status}"
+        )
+        return [f"[Page {start + 1}]\n\n{local_text}"]
 
     # Single page permanently unusable — emit a marker and move on
     print(
@@ -490,7 +574,7 @@ async def extract_text_from_bytes(data: bytes, file_type: str) -> str:
 #   - Hard char cap so we never exceed Milvus's chunk_text capacity
 CHUNK_TARGET_WORDS = 600
 CHUNK_OVERLAP_WORDS = 100
-CHUNK_MIN_WORDS = 30
+CHUNK_MIN_WORDS = 5
 # Milvus chunk_text capacity is 16000; leave headroom for safety.
 CHUNK_MAX_CHARS = 15000
 
@@ -569,6 +653,35 @@ def _split_into_units(text: str) -> list[str]:
     return units
 
 
+def _split_unit_for_char_cap(unit: str, max_chars: int) -> list[str]:
+    """Split oversized units so no piece exceeds max_chars."""
+    unit = (unit or "").strip()
+    if not unit:
+        return []
+    if len(unit) <= max_chars:
+        return [unit]
+
+    out: list[str] = []
+    remaining = unit
+    while len(remaining) > max_chars:
+        cut = remaining.rfind("\n\n", 0, max_chars)
+        if cut < int(max_chars * 0.4):
+            cut = remaining.rfind(". ", 0, max_chars)
+        if cut < int(max_chars * 0.4):
+            cut = remaining.rfind(" ", 0, max_chars)
+        if cut <= 0:
+            cut = max_chars
+
+        piece = remaining[:cut].strip()
+        if piece:
+            out.append(piece)
+        remaining = remaining[cut:].strip()
+
+    if remaining:
+        out.append(remaining)
+    return out
+
+
 def _compute_chapter_map(units: list[str]) -> list[tuple[int, str]]:
     """For each unit, return (chapter_number, chapter_title) currently in scope."""
     out: list[tuple[int, str]] = []
@@ -597,8 +710,9 @@ def chunk_text(raw_text: str) -> list[dict]:
     unit_pages: list[int] = []
     for page_num, page_text in pages:
         for u in _split_into_units(page_text):
-            units.append(u)
-            unit_pages.append(page_num)
+            for split_u in _split_unit_for_char_cap(u, CHUNK_MAX_CHARS):
+                units.append(split_u)
+                unit_pages.append(page_num)
 
     if not units:
         return []
@@ -638,8 +752,6 @@ def chunk_text(raw_text: str) -> list[dict]:
                 break
 
         chunk_body = "\n\n".join(cur_parts).strip()
-        if len(chunk_body) > CHUNK_MAX_CHARS:
-            chunk_body = chunk_body[:CHUNK_MAX_CHARS]
 
         if cur_words >= CHUNK_MIN_WORDS:
             chapter_num, chapter_title = chapter_map[i]
@@ -728,7 +840,7 @@ async def ingest_document(document_id: str, db: AsyncSession) -> dict:
                 "chapter_number": chunk["chapter_number"],
                 "chapter_title":  chunk["chapter_title"][:300],
                 "page_number":    chunk["page_number"],
-                "chunk_text":     chunk["text"][:CHUNK_MAX_CHARS],
+                "chunk_text":     chunk["text"],
                 "embedding":      emb,
             }
             for pg_c, chunk, emb in zip(pg_chunks, chunks, embeddings)
