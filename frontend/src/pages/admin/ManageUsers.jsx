@@ -8,10 +8,31 @@ const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Cl
 const SUBJECTS = ['Mathematics', 'Science', 'General Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge', 'Civics', 'Economics', 'Education'];
 // Classes that can be assigned to a teacher during account creation / management
 const TEACHER_CLASSES = ['Pre-Nursery', 'Nursery', 'KG', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'];
-// Section letters offered when assigning class+section combinations to a teacher
-const SECTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 const ROLE_COLOR = { admin: 'badge-purple', teacher: 'badge-green', student: 'badge-blue' };
+
+// Mirrors backend services/student_excel_import_service.py::normalize_section so
+// admin-typed sections (students, teachers) match bulk-imported ones exactly:
+// strip a leading "Section"/"Sec" word, collapse spaces, upper-case short codes.
+const normalizeSection = (raw) => {
+  if (raw == null) return '';
+  let s = String(raw).trim();
+  if (!s) return '';
+  s = s.replace(/^(section|sec)\b[\s:.\-]*/i, '').trim();
+  s = s.replace(/\s+/g, ' ');
+  if (!s) return '';
+  return s.length <= 3 ? s.toUpperCase() : s;
+};
+
+// Parse a comma-separated section list into a deduped, normalized array.
+const parseSections = (raw) => {
+  const out = [];
+  String(raw || '').split(',').forEach((tok) => {
+    const sec = normalizeSection(tok);
+    if (sec && !out.includes(sec)) out.push(sec);
+  });
+  return out;
+};
 
 export default function ManageUsers() {
   const [users, setUsers] = useState([]);
@@ -34,6 +55,9 @@ export default function ManageUsers() {
   const [form, setForm] = useState({
     name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', section: '', subjects: [], assigned_classes: [], assigned_sections: [],
   });
+  // Raw, per-class section text for the teacher form (keyed by class name).
+  // assigned_sections is rebuilt from this (normalized) on save.
+  const [sectionText, setSectionText] = useState({});
 
   const load = async () => {
     setLoading(true);
@@ -52,6 +76,7 @@ export default function ManageUsers() {
   const openCreate = () => {
     setEditUser(null);
     setForm({ name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', section: '', subjects: [], assigned_classes: [], assigned_sections: [] });
+    setSectionText({});
     setError('');
     setShowModal(true);
   };
@@ -65,6 +90,17 @@ export default function ManageUsers() {
       assigned_classes: user.assigned_classes || [],
       assigned_sections: user.assigned_sections || [],
     });
+    // Rebuild the per-class section text from stored "Class - Section" combos.
+    const st = {};
+    (user.assigned_sections || []).forEach((combo) => {
+      const idx = combo.indexOf(' - ');
+      if (idx > -1) {
+        const cls = combo.slice(0, idx);
+        const sec = combo.slice(idx + 3);
+        st[cls] = st[cls] ? `${st[cls]}, ${sec}` : sec;
+      }
+    });
+    setSectionText(st);
     setError('');
     setShowModal(true);
   };
@@ -104,17 +140,28 @@ export default function ManageUsers() {
       setError('Password is required for new users');
       return;
     }
+    // Build the payload, normalizing sections so they match across students,
+    // teachers and bulk import.
+    const payload = { ...form };
     // Strip password from edit payload — password changes go through reset-password endpoint
-    if (editUser) delete form.password;
+    if (editUser) delete payload.password;
+    if (payload.role === 'student') {
+      payload.section = normalizeSection(payload.section);
+    }
+    if (payload.role === 'teacher') {
+      payload.assigned_sections = form.assigned_classes.flatMap(
+        (c) => parseSections(sectionText[c]).map((sec) => `${c} - ${sec}`)
+      );
+    }
     setSaving(true);
     setError('');
     try {
       if (editUser) {
-        const { data } = await adminAPI.updateUser(editUser.id, form);
+        const { data } = await adminAPI.updateUser(editUser.id, payload);
         setUsers((prev) => prev.map((u) => u.id === editUser.id ? data : u));
         setSuccess('User updated successfully');
       } else {
-        const { data } = await adminAPI.createUser(form);
+        const { data } = await adminAPI.createUser(payload);
         setUsers((prev) => [data, ...prev]);
         setSuccess('User created successfully');
       }
@@ -471,11 +518,15 @@ export default function ManageUsers() {
                               assigned_classes: checked
                                 ? [...f.assigned_classes, c]
                                 : f.assigned_classes.filter((x) => x !== c),
-                              // Drop this class's section combos when it is unassigned
-                              assigned_sections: checked
-                                ? f.assigned_sections
-                                : f.assigned_sections.filter((s) => !s.startsWith(`${c} - `)),
                             }));
+                            // Clear this class's typed sections when it is unassigned
+                            if (!checked) {
+                              setSectionText((st) => {
+                                const next = { ...st };
+                                delete next[c];
+                                return next;
+                              });
+                            }
                           }}
                           className="rounded"
                         />
@@ -493,32 +544,17 @@ export default function ManageUsers() {
                     {form.assigned_classes.map((c) => (
                       <div key={c} className="border border-line rounded-lg p-2">
                         <div className="text-xs font-medium text-muted mb-1.5">{c}</div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {SECTION_LETTERS.map((letter) => {
-                            const combo = `${c} - ${letter}`;
-                            const checked = form.assigned_sections.includes(combo);
-                            return (
-                              <label key={letter} className={`flex items-center gap-1 text-xs cursor-pointer rounded px-2 py-1 border ${checked ? 'border-emerald-400 bg-emerald-50/60' : 'border-line'}`}>
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  onChange={(e) => {
-                                    const secs = e.target.checked
-                                      ? [...form.assigned_sections, combo]
-                                      : form.assigned_sections.filter((x) => x !== combo);
-                                    setF('assigned_sections', secs);
-                                  }}
-                                  className="rounded"
-                                />
-                                {letter}
-                              </label>
-                            );
-                          })}
-                        </div>
+                        <input
+                          type="text"
+                          value={sectionText[c] || ''}
+                          onChange={(e) => setSectionText((st) => ({ ...st, [c]: e.target.value }))}
+                          className="input-field"
+                          placeholder="Sections, comma-separated (e.g. A, B)"
+                        />
                       </div>
                     ))}
                   </div>
-                  <p className="text-xs text-faint mt-1">Tick the sections this teacher handles for each assigned class.</p>
+                  <p className="text-xs text-faint mt-1">Type the sections this teacher handles for each class, separated by commas.</p>
                 </div>
               )}
             </div>
