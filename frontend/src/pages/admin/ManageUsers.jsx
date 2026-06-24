@@ -382,12 +382,12 @@ export default function ManageUsers() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-md">
-            <div className="p-5 border-b flex items-center justify-between">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b flex items-center justify-between shrink-0">
               <h2 className="font-bold text-ink">{editUser ? 'Edit User' : 'Add New User'}</h2>
               <button onClick={() => setShowModal(false)} className="text-faint hover:text-muted"><X size={20} /></button>
             </div>
-            <div className="p-5 space-y-3">
+            <div className="p-5 space-y-3 overflow-y-auto">
               {error && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>
               )}
@@ -521,13 +521,13 @@ export default function ManageUsers() {
                   <p className="text-xs text-faint mt-1">Tick the sections this teacher handles for each assigned class.</p>
                 </div>
               )}
-              <div className="flex gap-3 pt-2">
-                <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
-                <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
-                  {saving ? <Loader2 size={16} className="animate-spin" /> : null}
-                  {editUser ? 'Update' : 'Create'} User
-                </button>
-              </div>
+            </div>
+            <div className="p-5 border-t shrink-0 flex gap-3">
+              <button onClick={() => setShowModal(false)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
+                {saving ? <Loader2 size={16} className="animate-spin" /> : null}
+                {editUser ? 'Update' : 'Create'} User
+              </button>
             </div>
           </div>
         </div>
