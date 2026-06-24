@@ -57,6 +57,37 @@ class User(Base):
         return d
 
 
+# ─── CURRICULUM MAPPING ───────────────────────────────────────────────────────
+#
+# Pre-Board structure: a student's enrolled class can differ from the curriculum
+# they actually study. e.g. Grade 8 ("Pre-9th") students use the Grade 9
+# curriculum, but all Grade 9 knowledge-base content is stored under Grade 9.
+# A mapping row says "when a student is in `source_class`, search the knowledge
+# base under `target_class` instead". One row per source class.
+
+class CurriculumMapping(Base):
+    __tablename__ = "curriculum_mappings"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    # The student's enrolled / assigned class (e.g. "Class 8").
+    source_class = Column(String(50), nullable=False, unique=True)
+    # The knowledge-base class to search instead (e.g. "Class 9").
+    target_class = Column(String(50), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "source_class": self.source_class,
+            "target_class": self.target_class,
+            "is_active": self.is_active,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 # ─── ASSIGNMENT ───────────────────────────────────────────────────────────────
 
 class Assignment(Base):

@@ -12,6 +12,7 @@ from config.database import get_db
 from middleware.auth import get_current_user
 from models.models import User, ChatHistory
 from services.agent_service import stream_chat_with_agent
+from services.curriculum_service import resolve_curriculum_class
 
 logger = logging.getLogger("agent")
 
@@ -101,6 +102,13 @@ async def send_message(
     detected_subject = body.subject or auto_detect_subject(body.message)
     detected_class = auto_detect_class(body.message) or user.class_name
 
+    # Curriculum mapping: a student's enrolled class may study a different
+    # curriculum (Pre-Board structure, e.g. Class 8 → Class 9). Translate the
+    # class to the knowledge-base class to search BEFORE retrieval, so students
+    # never need to mention the curriculum class in their question. Falls back to
+    # the original class when no mapping is configured.
+    search_class = await resolve_curriculum_class(detected_class, db)
+
     # Save user message
     db.add(ChatHistory(
         user_id=user.id, session_id=session_id, role="user",
@@ -141,7 +149,7 @@ async def send_message(
                 body.message.strip(), db,
                 user_role=user.role,
                 subject=detected_subject,
-                class_level=detected_class,
+                class_level=search_class,
                 conversation_history=conversation_history,
                 user_id=user.id,
                 session_id=session_id,

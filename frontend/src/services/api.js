@@ -129,6 +129,11 @@ export const adminAPI = {
     });
   },
   downloadCredentials: () => api.get('/admin/download-credentials', { responseType: 'blob' }),
+  // Curriculum mappings (student class → knowledge-base class)
+  getCurriculumMappings: () => api.get('/admin/curriculum-mappings'),
+  createCurriculumMapping: (data) => api.post('/admin/curriculum-mappings', data),
+  updateCurriculumMapping: (id, data) => api.put(`/admin/curriculum-mappings/${id}`, data),
+  deleteCurriculumMapping: (id) => api.delete(`/admin/curriculum-mappings/${id}`),
 };
 
 // ─── NOTIFICATIONS ────────────────────────────────────────────────────────────

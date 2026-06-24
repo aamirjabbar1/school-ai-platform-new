@@ -6,7 +6,7 @@ import AuroraBackground from './AuroraBackground';
 import ThemeToggle from './ThemeToggle';
 import {
   LayoutDashboard, MessageSquare, BookOpen, FileText, Users,
-  Database, LogOut, Menu, X, ClipboardList, Sparkles,
+  Database, LogOut, Menu, X, ClipboardList, Sparkles, GraduationCap,
 } from 'lucide-react';
 
 const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
@@ -30,6 +30,7 @@ const navConfig = {
     { path: '/admin/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
     { path: '/admin/users',         icon: Users,           label: 'Manage Users' },
     { path: '/admin/knowledge-base',icon: Database,        label: 'Knowledge Base' },
+    { path: '/admin/academic-settings', icon: GraduationCap, label: 'Academic Settings' },
   ],
 };
 

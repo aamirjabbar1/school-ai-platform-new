@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
 from middleware.auth import get_current_user, require_roles
-from models.models import User, Notification
+from models.models import User, Notification, CurriculumMapping
 from services.teacher_import_service import (
     parse_salary_pdf,
     create_teacher_accounts,
@@ -45,6 +45,12 @@ class BroadcastRequest(BaseModel):
     title: str
     message: str
     target_role: str | None = None
+
+
+class CurriculumMappingRequest(BaseModel):
+    source_class: str
+    target_class: str
+    is_active: bool = True
 
 
 @router.get("/dashboard")
@@ -269,6 +275,116 @@ async def broadcast_notification(
 
     await db.commit()
     return {"message": f"Notification sent to {len(users)} users"}
+
+
+# ─── CURRICULUM MAPPING ──────────────────────────────────────────────────────
+#
+# Maps a student's enrolled class to the knowledge-base class to search, so
+# Pre-Board classes (e.g. Class 8 = "Pre-9th") automatically use the correct
+# curriculum content. See services/curriculum_service.py for how it's applied.
+
+@router.get("/curriculum-mappings")
+async def list_curriculum_mappings(
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(CurriculumMapping).order_by(CurriculumMapping.source_class)
+    )
+    return [m.to_dict() for m in result.scalars().all()]
+
+
+@router.post("/curriculum-mappings")
+async def create_curriculum_mapping(
+    body: CurriculumMappingRequest,
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    source = (body.source_class or "").strip()
+    target = (body.target_class or "").strip()
+    if not source or not target:
+        raise HTTPException(status_code=400, detail="Source and target class are required")
+    if source == target:
+        raise HTTPException(status_code=400, detail="Source and target class must be different")
+
+    existing = await db.execute(
+        select(CurriculumMapping).where(CurriculumMapping.source_class == source)
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail=f"A mapping for '{source}' already exists")
+
+    mapping = CurriculumMapping(
+        source_class=source, target_class=target, is_active=body.is_active,
+    )
+    db.add(mapping)
+    await db.commit()
+    await db.refresh(mapping)
+    return mapping.to_dict()
+
+
+@router.put("/curriculum-mappings/{mapping_id}")
+async def update_curriculum_mapping(
+    mapping_id: str,
+    body: dict,
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(CurriculumMapping).where(CurriculumMapping.id == mapping_id)
+    )
+    mapping = result.scalar_one_or_none()
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+
+    source = body.get("source_class")
+    target = body.get("target_class")
+    if source is not None:
+        source = source.strip()
+        if not source:
+            raise HTTPException(status_code=400, detail="Source class cannot be empty")
+    if target is not None:
+        target = target.strip()
+        if not target:
+            raise HTTPException(status_code=400, detail="Target class cannot be empty")
+
+    new_source = source if source is not None else mapping.source_class
+    new_target = target if target is not None else mapping.target_class
+    if new_source == new_target:
+        raise HTTPException(status_code=400, detail="Source and target class must be different")
+
+    # Guard the unique constraint on source_class
+    if source is not None and source != mapping.source_class:
+        clash = await db.execute(
+            select(CurriculumMapping).where(CurriculumMapping.source_class == source)
+        )
+        if clash.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail=f"A mapping for '{source}' already exists")
+        mapping.source_class = source
+    if target is not None:
+        mapping.target_class = target
+    if "is_active" in body:
+        mapping.is_active = bool(body["is_active"])
+
+    await db.commit()
+    await db.refresh(mapping)
+    return mapping.to_dict()
+
+
+@router.delete("/curriculum-mappings/{mapping_id}")
+async def delete_curriculum_mapping(
+    mapping_id: str,
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(CurriculumMapping).where(CurriculumMapping.id == mapping_id)
+    )
+    mapping = result.scalar_one_or_none()
+    if not mapping:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    await db.delete(mapping)
+    await db.commit()
+    return {"message": "Mapping deleted"}
 
 
 # ─── TEACHER IMPORT FROM SALARY PDF ──────────────────────────────────────────
