@@ -6,7 +6,7 @@ import {
   FileText, BookOpen, Filter, ScrollText, ChevronRight,
 } from 'lucide-react';
 
-const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge', 'Other'];
+const SUBJECTS = ['Mathematics', 'Science', 'General Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge', 'Civics', 'Economics', 'Education', 'Other'];
 const CLASS_LEVELS = ['All Classes', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
 const LANGUAGES = ['English', 'Urdu', 'Bilingual'];
 const PAPER_TYPES = [

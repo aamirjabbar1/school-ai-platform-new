@@ -5,7 +5,7 @@ import { Plus, Search, Edit2, Trash2, UserCheck, UserX, X, Loader2, Users, Downl
 
 const ROLES = ['student', 'teacher', 'admin'];
 const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
-const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge'];
+const SUBJECTS = ['Mathematics', 'Science', 'General Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge', 'Civics', 'Economics', 'Education'];
 // Classes that can be assigned to a teacher during account creation / management
 const TEACHER_CLASSES = ['Pre-Nursery', 'Nursery', 'KG', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'];
 
