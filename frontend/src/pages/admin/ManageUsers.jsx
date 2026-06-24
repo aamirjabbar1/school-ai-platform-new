@@ -8,6 +8,8 @@ const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Cl
 const SUBJECTS = ['Mathematics', 'Science', 'General Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge', 'Civics', 'Economics', 'Education'];
 // Classes that can be assigned to a teacher during account creation / management
 const TEACHER_CLASSES = ['Pre-Nursery', 'Nursery', 'KG', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'];
+// Section letters offered when assigning class+section combinations to a teacher
+const SECTION_LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
 const ROLE_COLOR = { admin: 'badge-purple', teacher: 'badge-green', student: 'badge-blue' };
 
@@ -30,7 +32,7 @@ export default function ManageUsers() {
   const [showResetPass, setShowResetPass] = useState(false);
 
   const [form, setForm] = useState({
-    name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', subjects: [], assigned_classes: [],
+    name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', section: '', subjects: [], assigned_classes: [], assigned_sections: [],
   });
 
   const load = async () => {
@@ -49,7 +51,7 @@ export default function ManageUsers() {
 
   const openCreate = () => {
     setEditUser(null);
-    setForm({ name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', subjects: [], assigned_classes: [] });
+    setForm({ name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', section: '', subjects: [], assigned_classes: [], assigned_sections: [] });
     setError('');
     setShowModal(true);
   };
@@ -58,8 +60,10 @@ export default function ManageUsers() {
     setEditUser(user);
     setForm({
       name: user.name, login_id: user.login_id, email: user.email || '',
-      role: user.role, class_name: user.class_name || '', subjects: user.subjects || [],
+      role: user.role, class_name: user.class_name || '', section: user.section || '',
+      subjects: user.subjects || [],
       assigned_classes: user.assigned_classes || [],
+      assigned_sections: user.assigned_sections || [],
     });
     setError('');
     setShowModal(true);
@@ -274,7 +278,10 @@ export default function ManageUsers() {
                       {user.role === 'teacher'
                         ? ([user.subjects?.slice(0, 2).join(', ') || null,
                             user.assigned_classes?.length ? `${user.assigned_classes.length} class${user.assigned_classes.length > 1 ? 'es' : ''}` : null,
+                            user.assigned_sections?.length ? `${user.assigned_sections.length} section${user.assigned_sections.length > 1 ? 's' : ''}` : null,
                           ].filter(Boolean).join(' · ') || '—')
+                        : user.role === 'student'
+                        ? ([user.class_name, user.section].filter(Boolean).join(' - ') || '—')
                         : (user.class_name || user.subjects?.slice(0, 2).join(', ') || '—')}
                     </td>
                     <td className="p-4">
@@ -411,12 +418,18 @@ export default function ManageUsers() {
                 <input type="email" value={form.email} onChange={(e) => setF('email', e.target.value)} className="input-field" placeholder="Optional email" />
               </div>
               {form.role === 'student' && (
-                <div>
-                  <label className="block text-sm font-medium text-ink/90 mb-1">Class</label>
-                  <select value={form.class_name} onChange={(e) => setF('class_name', e.target.value)} className="input-field">
-                    <option value="">Select class</option>
-                    {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-ink/90 mb-1">Class</label>
+                    <select value={form.class_name} onChange={(e) => setF('class_name', e.target.value)} className="input-field">
+                      <option value="">Select class</option>
+                      {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-ink/90 mb-1">Section</label>
+                    <input type="text" value={form.section} onChange={(e) => setF('section', e.target.value)} className="input-field" placeholder="e.g. A" />
+                  </div>
                 </div>
               )}
               {form.role === 'teacher' && (
@@ -452,10 +465,17 @@ export default function ManageUsers() {
                           type="checkbox"
                           checked={form.assigned_classes.includes(c)}
                           onChange={(e) => {
-                            const classes = e.target.checked
-                              ? [...form.assigned_classes, c]
-                              : form.assigned_classes.filter((x) => x !== c);
-                            setF('assigned_classes', classes);
+                            const checked = e.target.checked;
+                            setForm((f) => ({
+                              ...f,
+                              assigned_classes: checked
+                                ? [...f.assigned_classes, c]
+                                : f.assigned_classes.filter((x) => x !== c),
+                              // Drop this class's section combos when it is unassigned
+                              assigned_sections: checked
+                                ? f.assigned_sections
+                                : f.assigned_sections.filter((s) => !s.startsWith(`${c} - `)),
+                            }));
                           }}
                           className="rounded"
                         />
@@ -464,6 +484,41 @@ export default function ManageUsers() {
                     ))}
                   </div>
                   <p className="text-xs text-faint mt-1">Assign one or more classes to this teacher.</p>
+                </div>
+              )}
+              {form.role === 'teacher' && form.assigned_classes.length > 0 && (
+                <div>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Assigned Sections</label>
+                  <div className="space-y-2">
+                    {form.assigned_classes.map((c) => (
+                      <div key={c} className="border border-line rounded-lg p-2">
+                        <div className="text-xs font-medium text-muted mb-1.5">{c}</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {SECTION_LETTERS.map((letter) => {
+                            const combo = `${c} - ${letter}`;
+                            const checked = form.assigned_sections.includes(combo);
+                            return (
+                              <label key={letter} className={`flex items-center gap-1 text-xs cursor-pointer rounded px-2 py-1 border ${checked ? 'border-emerald-400 bg-emerald-50/60' : 'border-line'}`}>
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => {
+                                    const secs = e.target.checked
+                                      ? [...form.assigned_sections, combo]
+                                      : form.assigned_sections.filter((x) => x !== combo);
+                                    setF('assigned_sections', secs);
+                                  }}
+                                  className="rounded"
+                                />
+                                {letter}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-faint mt-1">Tick the sections this teacher handles for each assigned class.</p>
                 </div>
               )}
               <div className="flex gap-3 pt-2">

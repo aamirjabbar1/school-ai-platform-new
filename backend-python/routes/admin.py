@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import Response
 from pydantic import BaseModel
 from utils.password import hash_password
@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
 from middleware.auth import get_current_user, require_roles
-from models.models import User, Notification, CurriculumMapping
+from models.models import User, Notification, CurriculumMapping, StudentImportBatch
 from services.teacher_import_service import (
     parse_salary_pdf,
     create_teacher_accounts,
@@ -18,6 +18,8 @@ from services.student_import_service import (
     create_student_accounts,
     generate_student_credentials_excel,
 )
+from services import student_excel_import_service as excel_import
+from tasks.student_import_tasks import process_student_import_task
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -29,8 +31,10 @@ class CreateUserRequest(BaseModel):
     password: str
     role: str
     class_name: str | None = None
+    section: str | None = None
     subjects: list = []
     assigned_classes: list = []
+    assigned_sections: list = []
 
 
 class BulkCreateRequest(BaseModel):
@@ -150,7 +154,9 @@ async def create_user(
         email=body.email or None,
         password_hash=hash_password(body.password), role=body.role,
         class_name=body.class_name or None,
+        section=body.section or None,
         subjects=body.subjects, assigned_classes=body.assigned_classes,
+        assigned_sections=body.assigned_sections,
         is_active=True,
         must_change_password=(body.role != "admin"),
     )
@@ -385,6 +391,166 @@ async def delete_curriculum_mapping(
     await db.delete(mapping)
     await db.commit()
     return {"message": "Mapping deleted"}
+
+
+# ─── BULK STUDENT IMPORT (EXCEL) ─────────────────────────────────────────────
+#
+# Upload an .xlsx of ~800-1000 students. Processing runs in a Celery background
+# task (see tasks/student_import_tasks.py) so the request returns immediately and
+# the heavy bcrypt hashing never hits the reverse-proxy timeout. The frontend
+# polls the batch status, then downloads the credentials file and can roll back.
+
+_DUP_MODES = {"skip", "update", "create_new"}
+_PW_MODES = {"registration", "custom", "random"}
+_SECTION_MODES = {"create", "strict"}
+
+
+@router.post("/students/bulk-import")
+async def bulk_import_students(
+    file: UploadFile = File(...),
+    duplicate_mode: str = Form("skip"),
+    password_mode: str = Form("registration"),
+    section_mode: str = Form("create"),
+    custom_password: str | None = Form(None),
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    if not file.filename or not file.filename.lower().endswith((".xlsx", ".xlsm")):
+        raise HTTPException(status_code=400, detail="Please upload an Excel (.xlsx) file")
+    if duplicate_mode not in _DUP_MODES:
+        raise HTTPException(status_code=400, detail="Invalid duplicate handling mode")
+    if password_mode not in _PW_MODES:
+        raise HTTPException(status_code=400, detail="Invalid password mode")
+    if section_mode not in _SECTION_MODES:
+        raise HTTPException(status_code=400, detail="Invalid section mode")
+    if password_mode == "custom" and not (custom_password or "").strip():
+        raise HTTPException(status_code=400, detail="A custom password is required for the 'custom' password mode")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="The uploaded file is empty")
+
+    batch = StudentImportBatch(
+        filename=file.filename[:255],
+        status="pending",
+        duplicate_mode=duplicate_mode,
+        password_mode=password_mode,
+        section_mode=section_mode,
+    )
+    db.add(batch)
+    await db.commit()
+    await db.refresh(batch)
+
+    # Stage the file on the shared uploads volume for the worker to read.
+    excel_import.ensure_imports_dir()
+    src_path = excel_import.import_source_path(batch.id)
+    with open(src_path, "wb") as f:
+        f.write(content)
+
+    process_student_import_task.delay(
+        batch.id, src_path, custom_password if password_mode == "custom" else None
+    )
+
+    return batch.to_dict()
+
+
+@router.get("/students/import-batches")
+async def list_import_batches(
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(StudentImportBatch).order_by(StudentImportBatch.created_at.desc()).limit(20)
+    )
+    return [b.to_dict() for b in result.scalars().all()]
+
+
+@router.get("/students/import-batches/{batch_id}")
+async def get_import_batch(
+    batch_id: str,
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(StudentImportBatch).where(StudentImportBatch.id == batch_id))
+    batch = result.scalar_one_or_none()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import batch not found")
+    return batch.to_dict(include_details=True)
+
+
+@router.get("/students/import-batches/{batch_id}/credentials")
+async def download_import_credentials(
+    batch_id: str,
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(StudentImportBatch).where(StudentImportBatch.id == batch_id))
+    batch = result.scalar_one_or_none()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import batch not found")
+
+    import os
+    path = excel_import.credentials_path(batch_id)
+    if not batch.has_credentials or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="No credentials file available for this import")
+
+    with open(path, "rb") as f:
+        content = f.read()
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename=student_credentials_{batch_id[:8]}.xlsx"},
+    )
+
+
+@router.post("/students/import-batches/{batch_id}/rollback")
+async def rollback_import_batch(
+    batch_id: str,
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(StudentImportBatch).where(StudentImportBatch.id == batch_id))
+    batch = result.scalar_one_or_none()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import batch not found")
+    if batch.is_rolled_back:
+        raise HTTPException(status_code=400, detail="This import has already been rolled back")
+    if batch.status not in ("completed",):
+        raise HTTPException(status_code=400, detail="Only a completed import can be rolled back")
+
+    ids = batch.created_user_ids or []
+    deleted = 0
+    if ids:
+        # Only accounts CREATED by this batch are removed; pre-existing and
+        # updated records are preserved (they are not in created_user_ids).
+        try:
+            res = await db.execute(
+                User.__table__.delete().where(User.id.in_(ids))
+            )
+            deleted = res.rowcount or 0
+        except Exception as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail=f"Rollback failed (some accounts may have activity that prevents deletion): {exc}",
+            )
+
+    batch.is_rolled_back = True
+    batch.status = "rolled_back"
+    batch.created_user_ids = []
+    batch.has_credentials = False
+    await db.commit()
+
+    # Best-effort removal of the now-stale credentials file.
+    import os
+    try:
+        path = excel_import.credentials_path(batch_id)
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
+
+    return {"message": f"Rolled back — removed {deleted} student account(s)", "deleted": deleted}
 
 
 # ─── TEACHER IMPORT FROM SALARY PDF ──────────────────────────────────────────

@@ -25,9 +25,15 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), nullable=False, default="student")
     class_name = Column(String(50), nullable=True)
+    # Student's section within their class (e.g. "A"). Optional.
+    section = Column(String(50), nullable=True)
+    # Father's name (collected for students, e.g. via bulk import). Optional.
+    father_name = Column(String(150), nullable=True)
     subjects = Column(JSON, nullable=True, default=list)
     # Classes assigned to a teacher (list of class names). Unused for other roles.
     assigned_classes = Column(JSON, nullable=True, default=list)
+    # Class+section combinations assigned to a teacher (e.g. "Grade 5 - A").
+    assigned_sections = Column(JSON, nullable=True, default=list)
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False, nullable=False)
     last_login = Column(DateTime, nullable=True)
@@ -45,7 +51,9 @@ class User(Base):
         d = {
             "id": self.id, "name": self.name, "login_id": self.login_id,
             "email": self.email, "role": self.role, "class_name": self.class_name,
+            "section": self.section, "father_name": self.father_name,
             "subjects": self.subjects or [], "assigned_classes": self.assigned_classes or [],
+            "assigned_sections": self.assigned_sections or [],
             "is_active": self.is_active,
             "must_change_password": self.must_change_password,
             "last_login": self.last_login.isoformat() if self.last_login else None,
@@ -86,6 +94,72 @@ class CurriculumMapping(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+# ─── STUDENT IMPORT BATCH ─────────────────────────────────────────────────────
+#
+# Tracks a single bulk student import (Excel upload). Processing runs in a Celery
+# task; the row holds the live status, the summary counts, the detailed error log
+# and the ids of accounts created by this batch (so the import can be rolled back
+# without touching pre-existing or updated records).
+
+class StudentImportBatch(Base):
+    __tablename__ = "student_import_batches"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    filename = Column(String(255), nullable=True)
+    # pending | processing | completed | failed | rolled_back
+    status = Column(String(20), nullable=False, default="pending")
+    # skip | update | create_new  — how to treat existing registration numbers
+    duplicate_mode = Column(String(20), nullable=False, default="skip")
+    # registration | custom | random  — how default passwords are generated
+    password_mode = Column(String(20), nullable=False, default="registration")
+    # create | strict  — auto-create unknown sections, or skip them with an error
+    section_mode = Column(String(20), nullable=False, default="create")
+
+    total = Column(Integer, default=0)
+    created_count = Column(Integer, default=0)
+    updated_count = Column(Integer, default=0)
+    skipped_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+
+    # list of {row, reg_no, name, reason}
+    error_log = Column(JSON, nullable=True, default=list)
+    # ids of users CREATED by this batch (drives rollback)
+    created_user_ids = Column(JSON, nullable=True, default=list)
+
+    has_credentials = Column(Boolean, default=False)
+    is_rolled_back = Column(Boolean, default=False, nullable=False)
+    # fatal task-level error message (parsing failure etc.)
+    error_message = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+    finished_at = Column(DateTime, nullable=True)
+
+    def to_dict(self, include_details: bool = False):
+        d = {
+            "id": self.id,
+            "filename": self.filename,
+            "status": self.status,
+            "duplicate_mode": self.duplicate_mode,
+            "password_mode": self.password_mode,
+            "section_mode": self.section_mode,
+            "total": self.total or 0,
+            "created_count": self.created_count or 0,
+            "updated_count": self.updated_count or 0,
+            "skipped_count": self.skipped_count or 0,
+            "failed_count": self.failed_count or 0,
+            "has_credentials": self.has_credentials,
+            "is_rolled_back": self.is_rolled_back,
+            "error_message": self.error_message,
+            "created_count_remaining": len(self.created_user_ids or []),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
+        if include_details:
+            d["error_log"] = self.error_log or []
+        return d
 
 
 # ─── ASSIGNMENT ───────────────────────────────────────────────────────────────

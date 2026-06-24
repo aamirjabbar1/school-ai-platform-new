@@ -134,6 +134,23 @@ export const adminAPI = {
   createCurriculumMapping: (data) => api.post('/admin/curriculum-mappings', data),
   updateCurriculumMapping: (id, data) => api.put(`/admin/curriculum-mappings/${id}`, data),
   deleteCurriculumMapping: (id) => api.delete(`/admin/curriculum-mappings/${id}`),
+  // Bulk student import (Excel → background Celery job)
+  bulkImportStudents: ({ file, duplicate_mode, password_mode, section_mode, custom_password }) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('duplicate_mode', duplicate_mode);
+    formData.append('password_mode', password_mode);
+    formData.append('section_mode', section_mode);
+    if (custom_password) formData.append('custom_password', custom_password);
+    return api.post('/admin/students/bulk-import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+  },
+  getImportBatches: () => api.get('/admin/students/import-batches'),
+  getImportBatch: (id) => api.get(`/admin/students/import-batches/${id}`),
+  downloadImportCredentials: (id) => api.get(`/admin/students/import-batches/${id}/credentials`, { responseType: 'blob' }),
+  rollbackImport: (id) => api.post(`/admin/students/import-batches/${id}/rollback`),
 };
 
 // ─── NOTIFICATIONS ────────────────────────────────────────────────────────────

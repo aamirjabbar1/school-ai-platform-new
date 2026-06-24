@@ -19,6 +19,7 @@ import AdminDashboard from './pages/admin/Dashboard';
 import ManageUsers from './pages/admin/ManageUsers';
 import KnowledgeBase from './pages/admin/KnowledgeBase';
 import CurriculumMapping from './pages/admin/CurriculumMapping';
+import BulkImportStudents from './pages/admin/BulkImportStudents';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
@@ -73,6 +74,7 @@ export default function App() {
           {/* Admin Routes */}
           <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />
           <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><ManageUsers /></ProtectedRoute>} />
+          <Route path="/admin/import-students" element={<ProtectedRoute allowedRoles={['admin']}><BulkImportStudents /></ProtectedRoute>} />
           <Route path="/admin/knowledge-base" element={<ProtectedRoute allowedRoles={['admin']}><KnowledgeBase /></ProtectedRoute>} />
           <Route path="/admin/academic-settings" element={<ProtectedRoute allowedRoles={['admin']}><CurriculumMapping /></ProtectedRoute>} />
 
