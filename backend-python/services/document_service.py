@@ -3,7 +3,7 @@ Document ingestion pipeline (Gemini-based extraction, vision-aware):
 
   1. Download file bytes from MinIO
   2. Extract text + figure descriptions via Google Gemini 2.5
-       PDF:  8 pages/chunk, max_output_tokens=16384, vision-enabled prompt
+    PDF:  6 pages/chunk, max_output_tokens=8192, vision-enabled prompt
        DOCX: 3000 words/batch, structuring pass
   3. Structure-aware chunking that respects pages/chapters/tables/figures
   4. Generate embeddings via OpenAI text-embedding-3-large
@@ -21,6 +21,16 @@ import io
 import os
 import re
 import uuid
+
+try:
+    import httpcore
+except Exception:  # pragma: no cover - optional import for runtime-specific errors
+    httpcore = None
+
+try:
+    import httpx
+except Exception:  # pragma: no cover - optional import for runtime-specific errors
+    httpx = None
 
 from google import genai
 from google.genai import errors, types
@@ -46,23 +56,34 @@ _SAFETY_SETTINGS = [
     types.SafetySetting(category="HARM_CATEGORY_DANGEROUS_CONTENT", threshold="BLOCK_NONE"),
 ]
 
-# Smaller PDF slices so the model can output every word verbatim within
-# max_output_tokens. 8 pages × ~500 words = ~4000 words ≈ 6k output tokens;
-# figures and tables push this higher, so we leave plenty of headroom.
-_PDF_PAGES_PER_CHUNK = 8
+# Favor fewer, larger slices while staying under Gemini's 50MB PDF limit.
+_PDF_PAGES_PER_CHUNK = 6
 _PDF_MAX_TOKENS = 16384
-
-# Gemini caps inline request payloads at ~20MB. We aim much lower so the
-# extraction prompt + headers fit comfortably. 5MB raw → ~7MB base64 → safe.
-# The slicer halves the page count adaptively when a slice exceeds this.
-_PDF_TARGET_SLICE_BYTES = 5 * 1024 * 1024
+_PDF_TARGET_SLICE_BYTES = 30 * 1024 * 1024
+_PDF_CONCURRENCY = 1
 
 _DOCX_WORDS_PER_BATCH = 3000
 _DOCX_MAX_TOKENS = 8192
 
-# A short gap between sequential calls keeps us under Gemini's per-minute
-# request-rate limits on lower tiers.
-_INTER_CHUNK_DELAY_SECS = 1
+_GEMINI_RETRY_ATTEMPTS = 10
+_GEMINI_RETRY_BASE_DELAY_SECS = 5
+_GEMINI_RETRY_MAX_DELAY_SECS = 60
+
+_TRANSIENT_TRANSPORT_EXCEPTIONS = tuple(
+    exc
+    for exc in (
+        getattr(httpx, "RemoteProtocolError", None),
+        getattr(httpx, "ReadTimeout", None),
+        getattr(httpx, "ConnectError", None),
+        getattr(httpcore, "RemoteProtocolError", None),
+        getattr(httpcore, "ReadTimeout", None),
+        getattr(httpcore, "ConnectError", None),
+    )
+    if isinstance(exc, type)
+)
+
+# Parallel extraction makes this delay unnecessary.
+_INTER_CHUNK_DELAY_SECS = 10
 
 _gemini_client: "genai.Client | None" = None
 
@@ -163,7 +184,7 @@ def _build_pdf_slice(reader, start: int, end: int) -> bytes:
 
 
 def _build_adaptive_slices(reader) -> list[tuple[int, int, bytes]]:
-    """Slice PDF into chunks of ≤ _PDF_PAGES_PER_CHUNK pages AND ≤ target bytes.
+    """Slice PDF into chunks of <= _PDF_PAGES_PER_CHUNK pages AND <= target bytes.
 
     Returns list of (start_1based, end_1based, slice_bytes).
     """
@@ -194,7 +215,7 @@ async def _gemini_generate(client, contents: list, max_tokens: int):
         safety_settings=_SAFETY_SETTINGS,
     )
     last_exc: Exception | None = None
-    for attempt in range(5):
+    for attempt in range(_GEMINI_RETRY_ATTEMPTS):
         try:
             return await client.aio.models.generate_content(
                 model=_GEMINI_MODEL,
@@ -203,9 +224,27 @@ async def _gemini_generate(client, contents: list, max_tokens: int):
             )
         except errors.APIError as exc:
             code = getattr(exc, "code", None)
-            if code in (429, 500, 502, 503, 504) and attempt < 4:
-                delay = min(2 ** attempt, 30)
-                print(f"[Gemini] transient error {code} → retry {attempt + 1}/5 in {delay}s")
+            if code in (429, 500, 502, 503, 504) and attempt < (_GEMINI_RETRY_ATTEMPTS - 1):
+                delay = min(_GEMINI_RETRY_BASE_DELAY_SECS * (2 ** attempt), _GEMINI_RETRY_MAX_DELAY_SECS)
+                print(
+                    f"[Gemini] transient error {code} → retry "
+                    f"{attempt + 1}/{_GEMINI_RETRY_ATTEMPTS} in {delay}s"
+                )
+                await asyncio.sleep(delay)
+                last_exc = exc
+                continue
+            raise
+        except Exception as exc:
+            if (
+                _TRANSIENT_TRANSPORT_EXCEPTIONS
+                and isinstance(exc, _TRANSIENT_TRANSPORT_EXCEPTIONS)
+                and attempt < (_GEMINI_RETRY_ATTEMPTS - 1)
+            ):
+                delay = min(_GEMINI_RETRY_BASE_DELAY_SECS * (2 ** attempt), _GEMINI_RETRY_MAX_DELAY_SECS)
+                print(
+                    f"[Gemini] transient transport error {type(exc).__name__} → retry "
+                    f"{attempt + 1}/{_GEMINI_RETRY_ATTEMPTS} in {delay}s"
+                )
                 await asyncio.sleep(delay)
                 last_exc = exc
                 continue
@@ -219,9 +258,10 @@ def _gemini_text(response) -> tuple[str, str]:
     """Pull text out of a Gemini response.
 
     Returns (text, status), where status is:
-      "ok"      → usable text was produced
-      "blocked" → a safety / recitation / prompt block stopped generation
-      "empty"   → the model returned no text for some other reason
+    "ok"        -> usable text was produced
+    "truncated" -> usable text was produced but hit max_output_tokens
+    "blocked"   -> a safety / recitation / prompt block stopped generation
+    "empty"     -> the model returned no text for some other reason
     """
     pf = getattr(response, "prompt_feedback", None)
     if pf is not None and getattr(pf, "block_reason", None):
@@ -235,11 +275,13 @@ def _gemini_text(response) -> tuple[str, str]:
     content = getattr(cand, "content", None)
     parts = getattr(content, "parts", None) or [] if content else []
     text = "".join((getattr(p, "text", "") or "") for p in parts)
+    finish = getattr(cand, "finish_reason", None)
+    finish_name = (getattr(finish, "name", None) or str(finish or "")).upper()
+    if text.strip() and "MAX_TOKENS" in finish_name:
+        return text, "truncated"
     if text.strip():
         return text, "ok"
 
-    finish = getattr(cand, "finish_reason", None)
-    finish_name = (getattr(finish, "name", None) or str(finish or "")).upper()
     blocked = {"SAFETY", "PROHIBITED_CONTENT", "RECITATION", "BLOCKLIST", "SPII"}
     return ("", "blocked") if finish_name in blocked else ("", "empty")
 
@@ -248,6 +290,67 @@ def _is_too_large(exc: Exception) -> bool:
     code = getattr(exc, "code", None)
     msg = str(exc).lower()
     return code == 413 or "request entity too large" in msg or "exceeds the maximum" in msg
+
+
+def _merge_with_overlap(base: str, addition: str, max_overlap: int = 1200) -> str:
+    """Append addition to base while removing duplicate overlap at the boundary."""
+    base = base or ""
+    addition = addition or ""
+    if not base.strip():
+        return addition
+    if not addition.strip():
+        return base
+
+    tail = base[-max_overlap:]
+    head = addition[:max_overlap]
+    best = 0
+    for k in range(min(len(tail), len(head)), 24, -1):
+        if tail[-k:] == head[:k]:
+            best = k
+            break
+    return base + addition[best:]
+
+
+def _local_single_page_text(reader, page_index: int) -> str:
+    """Best-effort local text extraction fallback for one page."""
+    try:
+        return (reader.pages[page_index].extract_text() or "").strip()
+    except Exception:
+        return ""
+
+
+async def _continue_single_page_truncated(
+    client,
+    pdf_part,
+    prompt: str,
+    offset_hint: str,
+    initial_text: str,
+) -> str:
+    """Ask Gemini to continue a truncated single-page extraction."""
+    combined = (initial_text or "").strip()
+    if not combined:
+        return ""
+
+    for _ in range(3):
+        tail = combined[-2000:]
+        continuation_prompt = (
+            prompt
+            + offset_hint
+            + "\n\nThe previous output was truncated. Continue from exactly where it stopped. "
+              "Do not repeat previously extracted content. Output plain extracted content only.\n\n"
+              "Previously extracted tail:\n"
+            + tail
+        )
+        resp = await _gemini_generate(client, [pdf_part, continuation_prompt], _PDF_MAX_TOKENS)
+        next_text, status = _gemini_text(resp)
+        next_text = (next_text or "").strip()
+        if not next_text:
+            break
+        combined = _merge_with_overlap(combined, next_text)
+        if status != "truncated":
+            break
+
+    return combined
 
 
 async def _split_and_recurse(client, reader, start: int, end: int, reason: str) -> list[str]:
@@ -293,6 +396,17 @@ async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> 
     text, status = _gemini_text(resp)
     if status == "ok":
         return [text]
+    if status == "truncated" and (end - start) > 1:
+        return await _split_and_recurse(client, reader, start, end, "output truncated")
+    if status == "truncated":
+        continued = await _continue_single_page_truncated(
+            client,
+            pdf_part,
+            _EXTRACTION_PROMPT,
+            offset_hint,
+            text,
+        )
+        return [continued or text]
 
     # Blocked / empty → retry once without figure descriptions
     print(
@@ -313,10 +427,30 @@ async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> 
     text, status = _gemini_text(resp)
     if status == "ok":
         return [text]
+    if status == "truncated" and (end - start) > 1:
+        return await _split_and_recurse(client, reader, start, end, "output truncated")
+    if status == "truncated":
+        continued = await _continue_single_page_truncated(
+            client,
+            pdf_part,
+            _EXTRACTION_PROMPT_PLAIN,
+            offset_hint,
+            text,
+        )
+        return [continued or text]
 
     # Still blocked/empty → split if more than one page remains
     if (end - start) > 1:
         return await _split_and_recurse(client, reader, start, end, f"output {status} persists")
+
+    # Single page unusable from Gemini -> try local extraction before placeholder.
+    local_text = _local_single_page_text(reader, start)
+    if local_text:
+        print(
+            f"[PDF extraction] page {start + 1} using local text fallback "
+            f"after Gemini status={status}"
+        )
+        return [f"[Page {start + 1}]\n\n{local_text}"]
 
     # Single page permanently unusable — emit a marker and move on
     print(
@@ -330,7 +464,7 @@ async def _extract_slice_with_fallback(client, reader, start: int, end: int) -> 
 
 
 async def _extract_pdf_gemini(data: bytes) -> str:
-    """Adaptive PDF slicing → Gemini 2.5 vision extraction.
+    """Adaptive PDF slicing -> concurrent Gemini vision extraction.
 
     Slices are capped by both page count (so output fits max_output_tokens) and
     raw byte size (so the inline request stays under Gemini's ~20MB limit).
@@ -351,12 +485,32 @@ async def _extract_pdf_gemini(data: bytes) -> str:
         f"largest slice: {max(len(s[2]) for s in slices) / 1024 / 1024:.1f} MB"
     )
 
+    semaphore = asyncio.Semaphore(_PDF_CONCURRENCY)
+
+    async def process_slice(idx: int, start_1: int, end_1: int, slice_bytes: bytes):
+        async with semaphore:
+            size_mb = len(slice_bytes) / 1024 / 1024
+            print(
+                f"[PDF extraction] slice {idx + 1}/{len(slices)} "
+                f"pages={start_1}-{end_1} size={size_mb:.1f}MB started"
+            )
+            sub_results = await _extract_slice_with_fallback(client, reader, start_1 - 1, end_1)
+            print(
+                f"[PDF extraction] slice {idx + 1}/{len(slices)} "
+                f"pages={start_1}-{end_1} done"
+            )
+            return idx, sub_results
+
+    tasks = [
+        process_slice(idx, start_1, end_1, slice_bytes)
+        for idx, (start_1, end_1, slice_bytes) in enumerate(slices)
+    ]
+    completed = await asyncio.gather(*tasks)
+    completed.sort(key=lambda item: item[0])
+
     results: list[str] = []
-    for idx, (start_1, end_1, _bytes) in enumerate(slices):
-        sub_results = await _extract_slice_with_fallback(client, reader, start_1 - 1, end_1)
+    for _, sub_results in completed:
         results.extend(sub_results)
-        if idx < len(slices) - 1:
-            await asyncio.sleep(_INTER_CHUNK_DELAY_SECS)
 
     return "\n\n".join(results)
 
@@ -465,7 +619,7 @@ async def extract_text_from_bytes(data: bytes, file_type: str) -> str:
 #   - Hard char cap so we never exceed Milvus's chunk_text capacity
 CHUNK_TARGET_WORDS = 600
 CHUNK_OVERLAP_WORDS = 100
-CHUNK_MIN_WORDS = 30
+CHUNK_MIN_WORDS = 5
 # Milvus chunk_text capacity is 16000; leave headroom for safety.
 CHUNK_MAX_CHARS = 15000
 
@@ -544,6 +698,35 @@ def _split_into_units(text: str) -> list[str]:
     return units
 
 
+def _split_unit_for_char_cap(unit: str, max_chars: int) -> list[str]:
+    """Split oversized units so no piece exceeds max_chars."""
+    unit = (unit or "").strip()
+    if not unit:
+        return []
+    if len(unit) <= max_chars:
+        return [unit]
+
+    out: list[str] = []
+    remaining = unit
+    while len(remaining) > max_chars:
+        cut = remaining.rfind("\n\n", 0, max_chars)
+        if cut < int(max_chars * 0.4):
+            cut = remaining.rfind(". ", 0, max_chars)
+        if cut < int(max_chars * 0.4):
+            cut = remaining.rfind(" ", 0, max_chars)
+        if cut <= 0:
+            cut = max_chars
+
+        piece = remaining[:cut].strip()
+        if piece:
+            out.append(piece)
+        remaining = remaining[cut:].strip()
+
+    if remaining:
+        out.append(remaining)
+    return out
+
+
 def _compute_chapter_map(units: list[str]) -> list[tuple[int, str]]:
     """For each unit, return (chapter_number, chapter_title) currently in scope."""
     out: list[tuple[int, str]] = []
@@ -572,8 +755,9 @@ def chunk_text(raw_text: str) -> list[dict]:
     unit_pages: list[int] = []
     for page_num, page_text in pages:
         for u in _split_into_units(page_text):
-            units.append(u)
-            unit_pages.append(page_num)
+            for split_u in _split_unit_for_char_cap(u, CHUNK_MAX_CHARS):
+                units.append(split_u)
+                unit_pages.append(page_num)
 
     if not units:
         return []
@@ -613,8 +797,6 @@ def chunk_text(raw_text: str) -> list[dict]:
                 break
 
         chunk_body = "\n\n".join(cur_parts).strip()
-        if len(chunk_body) > CHUNK_MAX_CHARS:
-            chunk_body = chunk_body[:CHUNK_MAX_CHARS]
 
         if cur_words >= CHUNK_MIN_WORDS:
             chapter_num, chapter_title = chapter_map[i]
@@ -703,7 +885,7 @@ async def ingest_document(document_id: str, db: AsyncSession) -> dict:
                 "chapter_number": chunk["chapter_number"],
                 "chapter_title":  chunk["chapter_title"][:300],
                 "page_number":    chunk["page_number"],
-                "chunk_text":     chunk["text"][:CHUNK_MAX_CHARS],
+                "chunk_text":     chunk["text"],
                 "embedding":      emb,
             }
             for pg_c, chunk, emb in zip(pg_chunks, chunks, embeddings)
