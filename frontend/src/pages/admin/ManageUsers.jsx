@@ -5,7 +5,9 @@ import { Plus, Search, Edit2, Trash2, UserCheck, UserX, X, Loader2, Users, Downl
 
 const ROLES = ['student', 'teacher', 'admin'];
 const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
-const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Computer Science', 'Physics', 'Chemistry', 'Biology'];
+const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge'];
+// Classes that can be assigned to a teacher during account creation / management
+const TEACHER_CLASSES = ['Pre-Nursery', 'Nursery', 'KG', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'];
 
 const ROLE_COLOR = { admin: 'badge-purple', teacher: 'badge-green', student: 'badge-blue' };
 
@@ -28,7 +30,7 @@ export default function ManageUsers() {
   const [showResetPass, setShowResetPass] = useState(false);
 
   const [form, setForm] = useState({
-    name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', subjects: [],
+    name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', subjects: [], assigned_classes: [],
   });
 
   const load = async () => {
@@ -47,7 +49,7 @@ export default function ManageUsers() {
 
   const openCreate = () => {
     setEditUser(null);
-    setForm({ name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', subjects: [] });
+    setForm({ name: '', login_id: '', email: '', password: '', role: 'student', class_name: '', subjects: [], assigned_classes: [] });
     setError('');
     setShowModal(true);
   };
@@ -57,6 +59,7 @@ export default function ManageUsers() {
     setForm({
       name: user.name, login_id: user.login_id, email: user.email || '',
       role: user.role, class_name: user.class_name || '', subjects: user.subjects || [],
+      assigned_classes: user.assigned_classes || [],
     });
     setError('');
     setShowModal(true);
@@ -268,7 +271,11 @@ export default function ManageUsers() {
                       <span className={ROLE_COLOR[user.role] || 'badge-gray'}>{user.role}</span>
                     </td>
                     <td className="p-4 hidden md:table-cell text-muted text-xs">
-                      {user.class_name || user.subjects?.slice(0, 2).join(', ') || '—'}
+                      {user.role === 'teacher'
+                        ? ([user.subjects?.slice(0, 2).join(', ') || null,
+                            user.assigned_classes?.length ? `${user.assigned_classes.length} class${user.assigned_classes.length > 1 ? 'es' : ''}` : null,
+                          ].filter(Boolean).join(' · ') || '—')
+                        : (user.class_name || user.subjects?.slice(0, 2).join(', ') || '—')}
                     </td>
                     <td className="p-4">
                       <span className={user.is_active ? 'badge-green' : 'badge-red'}>
@@ -433,6 +440,30 @@ export default function ManageUsers() {
                       </label>
                     ))}
                   </div>
+                </div>
+              )}
+              {form.role === 'teacher' && (
+                <div>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Assigned Classes</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {TEACHER_CLASSES.map((c) => (
+                      <label key={c} className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.assigned_classes.includes(c)}
+                          onChange={(e) => {
+                            const classes = e.target.checked
+                              ? [...form.assigned_classes, c]
+                              : form.assigned_classes.filter((x) => x !== c);
+                            setF('assigned_classes', classes);
+                          }}
+                          className="rounded"
+                        />
+                        {c}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-faint mt-1">Assign one or more classes to this teacher.</p>
                 </div>
               )}
               <div className="flex gap-3 pt-2">

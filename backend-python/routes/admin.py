@@ -30,6 +30,7 @@ class CreateUserRequest(BaseModel):
     role: str
     class_name: str | None = None
     subjects: list = []
+    assigned_classes: list = []
 
 
 class BulkCreateRequest(BaseModel):
@@ -143,7 +144,8 @@ async def create_user(
         email=body.email or None,
         password_hash=hash_password(body.password), role=body.role,
         class_name=body.class_name or None,
-        subjects=body.subjects, is_active=True,
+        subjects=body.subjects, assigned_classes=body.assigned_classes,
+        is_active=True,
         must_change_password=(body.role != "admin"),
     )
     db.add(new_user)

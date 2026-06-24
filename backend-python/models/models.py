@@ -26,6 +26,8 @@ class User(Base):
     role = Column(String(20), nullable=False, default="student")
     class_name = Column(String(50), nullable=True)
     subjects = Column(JSON, nullable=True, default=list)
+    # Classes assigned to a teacher (list of class names). Unused for other roles.
+    assigned_classes = Column(JSON, nullable=True, default=list)
     is_active = Column(Boolean, default=True)
     must_change_password = Column(Boolean, default=False, nullable=False)
     last_login = Column(DateTime, nullable=True)
@@ -43,7 +45,8 @@ class User(Base):
         d = {
             "id": self.id, "name": self.name, "login_id": self.login_id,
             "email": self.email, "role": self.role, "class_name": self.class_name,
-            "subjects": self.subjects or [], "is_active": self.is_active,
+            "subjects": self.subjects or [], "assigned_classes": self.assigned_classes or [],
+            "is_active": self.is_active,
             "must_change_password": self.must_change_password,
             "last_login": self.last_login.isoformat() if self.last_login else None,
             "created_at": self.created_at.isoformat() if self.created_at else None,
