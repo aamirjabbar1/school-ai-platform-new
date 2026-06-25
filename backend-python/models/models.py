@@ -172,6 +172,8 @@ class Assignment(Base):
     description = Column(Text, nullable=False)
     subject = Column(String(100), nullable=False)
     class_name = Column(String(50), nullable=False)
+    # Target section within the class (e.g. "A"). Null = whole class.
+    section = Column(String(50), nullable=True)
     teacher_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     due_date = Column(Date, nullable=True)
     assignment_type = Column(String(20), default="homework")
@@ -187,7 +189,7 @@ class Assignment(Base):
     def to_dict(self):
         return {
             "id": self.id, "title": self.title, "description": self.description,
-            "subject": self.subject, "class_name": self.class_name,
+            "subject": self.subject, "class_name": self.class_name, "section": self.section,
             "teacher_id": self.teacher_id, "due_date": str(self.due_date) if self.due_date else None,
             "assignment_type": self.assignment_type, "max_marks": self.max_marks,
             "instructions": self.instructions, "is_active": self.is_active,
@@ -311,6 +313,8 @@ class QuestionPaper(Base):
     title = Column(String(255), nullable=False)
     subject = Column(String(100), nullable=False)
     class_name = Column(String(50), nullable=False)
+    # Target section within the class (e.g. "A"). Null = whole class.
+    section = Column(String(50), nullable=True)
     teacher_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     paper_type = Column(String(20), default="class_test")
     questions = Column(JSON, nullable=False, default=list)
@@ -327,7 +331,8 @@ class QuestionPaper(Base):
     def to_dict(self, hide_answers=False):
         d = {
             "id": self.id, "title": self.title, "subject": self.subject,
-            "class_name": self.class_name, "teacher_id": self.teacher_id,
+            "class_name": self.class_name, "section": self.section,
+            "teacher_id": self.teacher_id,
             "paper_type": self.paper_type, "questions": self.questions,
             "total_marks": self.total_marks, "duration_minutes": self.duration_minutes,
             "instructions": self.instructions, "is_published": self.is_published,

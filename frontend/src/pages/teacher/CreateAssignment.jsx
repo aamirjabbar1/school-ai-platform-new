@@ -2,18 +2,23 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import { assignmentAPI } from '../../services/api';
+import { useAuth } from '../../context/AuthContext';
+import { subjectsFor, classesFor, sectionsFor } from '../../constants/academics';
 import { Loader2, Send, CheckCircle, X, Wand2 } from 'lucide-react';
 
-const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Computer Science', 'Social Studies', 'Physics', 'Chemistry', 'Biology'];
-const CLASSES = ['Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
 const TYPES = ['homework', 'quiz', 'project', 'research', 'classwork'];
 
 export default function CreateAssignment() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // Dropdowns are restricted to the teacher's assigned subjects/classes/sections.
+  const subjectOptions = subjectsFor(user);
+  const classOptions = classesFor(user);
   const [form, setForm] = useState({
-    title: '', description: '', subject: '', class_name: '', due_date: '',
+    title: '', description: '', subject: '', class_name: '', section: '', due_date: '',
     assignment_type: 'homework', max_marks: 100, instructions: '',
   });
+  const sectionOptions = sectionsFor(user, form.class_name);
   const [aiTopic, setAiTopic] = useState('');
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState(''); // '' | 'generating' | 'creating'
@@ -159,16 +164,29 @@ export default function CreateAssignment() {
               <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
               <select value={form.subject} onChange={(e) => set('subject', e.target.value)} className="input-field" required>
                 <option value="">Select subject</option>
-                {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div>
               <label className="block text-sm font-medium text-ink/90 mb-1">Class *</label>
-              <select value={form.class_name} onChange={(e) => set('class_name', e.target.value)} className="input-field" required>
+              <select value={form.class_name} onChange={(e) => setForm((f) => ({ ...f, class_name: e.target.value, section: '' }))} className="input-field" required>
                 <option value="">Select class</option>
-                {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                {classOptions.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
+            {form.class_name && (
+              <div>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Section</label>
+                {sectionOptions.length > 0 ? (
+                  <select value={form.section} onChange={(e) => set('section', e.target.value)} className="input-field">
+                    <option value="">Whole class</option>
+                    {sectionOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : (
+                  <input type="text" value={form.section} onChange={(e) => set('section', e.target.value)} className="input-field" placeholder="Optional (e.g. A) — blank = whole class" />
+                )}
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-ink/90 mb-1">Type</label>
               <select value={form.assignment_type} onChange={(e) => set('assignment_type', e.target.value)} className="input-field capitalize">

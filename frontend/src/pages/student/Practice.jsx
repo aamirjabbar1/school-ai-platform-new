@@ -6,8 +6,7 @@ import {
   Sparkles, Loader2, CheckCircle, XCircle, X, Award, RefreshCw, AlertCircle,
   TrendingDown,
 } from 'lucide-react';
-
-const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography'];
+import { SUBJECTS } from '../../constants/academics';
 const DIFFICULTIES = [
   { value: 'mixed', label: 'Mixed' },
   { value: 'easy', label: 'Easy' },

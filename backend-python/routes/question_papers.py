@@ -21,6 +21,7 @@ router = APIRouter(prefix="/question-papers", tags=["question-papers"])
 class GeneratePaperRequest(BaseModel):
     subject: str
     class_name: str
+    section: str | None = None
     paper_type: str
     total_marks: int = 100
     duration_minutes: int = 60
@@ -55,6 +56,7 @@ class CreatePaperRequest(BaseModel):
     title: str
     subject: str
     class_name: str
+    section: str | None = None
     paper_type: str = "class_test"
     questions: list = []
     answer_key: list = []
@@ -86,7 +88,11 @@ async def get_question_papers(
     papers = result.scalars().all()
 
     if user.role == "student":
-        return [p.to_dict(hide_answers=True) for p in papers if p.is_published and p.class_name == user.class_name]
+        return [
+            p.to_dict(hide_answers=True) for p in papers
+            if p.is_published and p.class_name == user.class_name
+            and (not p.section or p.section == user.section)
+        ]
 
     return [p.to_dict() for p in papers]
 
@@ -107,6 +113,8 @@ async def get_question_paper(
             raise HTTPException(status_code=403, detail="Paper not published yet")
         if paper.class_name != user.class_name:
             raise HTTPException(status_code=403, detail="This paper is not for your class")
+        if paper.section and paper.section != user.section:
+            raise HTTPException(status_code=403, detail="This paper is not for your section")
         return paper.to_dict(hide_answers=True)
 
     return paper.to_dict()
@@ -135,6 +143,8 @@ async def download_question_paper_pdf(
             raise HTTPException(status_code=403, detail="Paper not published yet")
         if paper.class_name != user.class_name:
             raise HTTPException(status_code=403, detail="This paper is not for your class")
+        if paper.section and paper.section != user.section:
+            raise HTTPException(status_code=403, detail="This paper is not for your section")
 
     paper_dict = paper.to_dict()
     pdf_bytes = build_question_paper_pdf(paper_dict, include_answers=include_answers)
@@ -170,10 +180,12 @@ async def generate_paper(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    section = (body.section or "").strip() or None
     prefix = "MODEL PAPER" if body.generation_mode == "model" else body.paper_type.replace('_', ' ').upper()
-    title = f"{prefix} - {body.subject} ({body.class_name})"
+    class_label = f"{body.class_name} - {section}" if section else body.class_name
+    title = f"{prefix} - {body.subject} ({class_label})"
     paper = QuestionPaper(
-        title=title, subject=body.subject, class_name=body.class_name,
+        title=title, subject=body.subject, class_name=body.class_name, section=section,
         teacher_id=user.id, paper_type=body.paper_type,
         questions=result["questions"], answer_key=result["answer_key"],
         total_marks=body.total_marks, duration_minutes=body.duration_minutes,
@@ -254,6 +266,7 @@ async def create_paper(
 ):
     paper = QuestionPaper(
         title=body.title, subject=body.subject, class_name=body.class_name,
+        section=(body.section or "").strip() or None,
         teacher_id=user.id, paper_type=body.paper_type,
         questions=body.questions, answer_key=body.answer_key,
         total_marks=body.total_marks, duration_minutes=body.duration_minutes,

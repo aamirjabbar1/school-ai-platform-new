@@ -1,7 +1,7 @@
 from datetime import datetime, date
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
@@ -31,6 +31,7 @@ class CreateAssignmentRequest(BaseModel):
     description: str
     subject: str
     class_name: str
+    section: str | None = None
     due_date: str | None = None
     assignment_type: str = "homework"
     max_marks: int = 100
@@ -62,6 +63,11 @@ async def get_assignments(
         query = query.where(Assignment.teacher_id == user.id)
     elif user.role == "student":
         query = query.where(Assignment.class_name == user.class_name)
+        # Section-targeted assignments only reach that section; section-less ones
+        # (legacy / whole-class) reach the whole class.
+        query = query.where(
+            or_(Assignment.section.is_(None), Assignment.section == user.section)
+        )
 
     if subject:
         query = query.where(Assignment.subject == subject)
@@ -137,19 +143,23 @@ async def create_assignment(
     user: User = Depends(require_roles("teacher", "admin")),
     db: AsyncSession = Depends(get_db),
 ):
+    section = (body.section or "").strip() or None
     assignment = Assignment(
         title=body.title, description=body.description, subject=body.subject,
-        class_name=body.class_name, teacher_id=user.id,
+        class_name=body.class_name, section=section, teacher_id=user.id,
         due_date=_parse_date(body.due_date), assignment_type=body.assignment_type,
         max_marks=body.max_marks, instructions=body.instructions,
     )
     db.add(assignment)
     await db.flush()
 
-    # Notify students
-    result = await db.execute(
-        select(User).where(User.role == "student", User.class_name == body.class_name, User.is_active == True)
+    # Notify students — scoped to the section when one is set, else the whole class
+    student_query = select(User).where(
+        User.role == "student", User.class_name == body.class_name, User.is_active == True
     )
+    if section:
+        student_query = student_query.where(User.section == section)
+    result = await db.execute(student_query)
     students = result.scalars().all()
     for s in students:
         db.add(Notification(
@@ -242,6 +252,8 @@ async def submit_assignment(
         raise HTTPException(status_code=404, detail="Assignment not found")
     if assignment.class_name != user.class_name:
         raise HTTPException(status_code=403, detail="This assignment is not for your class")
+    if assignment.section and assignment.section != user.section:
+        raise HTTPException(status_code=403, detail="This assignment is not for your section")
 
     # Check existing
     sub_result = await db.execute(

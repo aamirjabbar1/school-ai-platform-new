@@ -5,9 +5,7 @@ import {
   Upload, Database, Trash2, RefreshCw, CheckCircle, AlertCircle, Loader2, X,
   FileText, BookOpen, Filter, ScrollText, ChevronRight,
 } from 'lucide-react';
-
-const SUBJECTS = ['Mathematics', 'Science', 'General Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge', 'Civics', 'Economics', 'Education', 'Other'];
-const CLASS_LEVELS = ['All Classes', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5', 'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
+import { KB_SUBJECTS as SUBJECTS, CLASS_LEVELS } from '../../constants/academics';
 const LANGUAGES = ['English', 'Urdu', 'Bilingual'];
 const PAPER_TYPES = [
   { value: 'past_paper', label: 'Past Paper' },

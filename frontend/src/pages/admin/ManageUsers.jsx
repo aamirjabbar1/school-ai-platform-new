@@ -2,37 +2,11 @@ import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import { adminAPI } from '../../services/api';
 import { Plus, Search, Edit2, Trash2, UserCheck, UserX, X, Loader2, Users, Download, Upload, FileText, CheckCircle, KeyRound, Eye, EyeOff } from 'lucide-react';
+import { SUBJECTS, CLASSES, TEACHER_CLASSES, normalizeSection, parseSections } from '../../constants/academics';
 
 const ROLES = ['student', 'teacher', 'admin'];
-const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
-const SUBJECTS = ['Mathematics', 'Science', 'General Science', 'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge', 'Civics', 'Economics', 'Education'];
-// Classes that can be assigned to a teacher during account creation / management
-const TEACHER_CLASSES = ['Pre-Nursery', 'Nursery', 'KG', 'Grade 1', 'Grade 2', 'Grade 3', 'Grade 4', 'Grade 5', 'Grade 6', 'Grade 7', 'Grade 8', 'Grade 9', 'Grade 10'];
 
 const ROLE_COLOR = { admin: 'badge-purple', teacher: 'badge-green', student: 'badge-blue' };
-
-// Mirrors backend services/student_excel_import_service.py::normalize_section so
-// admin-typed sections (students, teachers) match bulk-imported ones exactly:
-// strip a leading "Section"/"Sec" word, collapse spaces, upper-case short codes.
-const normalizeSection = (raw) => {
-  if (raw == null) return '';
-  let s = String(raw).trim();
-  if (!s) return '';
-  s = s.replace(/^(section|sec)\b[\s:.\-]*/i, '').trim();
-  s = s.replace(/\s+/g, ' ');
-  if (!s) return '';
-  return s.length <= 3 ? s.toUpperCase() : s;
-};
-
-// Parse a comma-separated section list into a deduped, normalized array.
-const parseSections = (raw) => {
-  const out = [];
-  String(raw || '').split(',').forEach((tok) => {
-    const sec = normalizeSection(tok);
-    if (sec && !out.includes(sec)) out.push(sec);
-  });
-  return out;
-};
 
 export default function ManageUsers() {
   const [users, setUsers] = useState([]);

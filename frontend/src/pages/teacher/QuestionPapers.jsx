@@ -2,13 +2,17 @@ import { useState, useEffect } from 'react';
 import Layout from '../../components/Layout';
 import { questionPaperAPI } from '../../services/api';
 import { FileText, Wand2, Loader2, Eye, Trash2, Globe, EyeOff, Plus, X, CheckCircle, ChevronDown, ChevronUp, Download, Sparkles, Lightbulb, TrendingUp } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
+import { subjectsFor, classesFor, sectionsFor } from '../../constants/academics';
 
-const SUBJECTS = ['Mathematics', 'Science', 'English', 'Urdu', 'Islamiat', 'Computer Science', 'Physics', 'Chemistry', 'Biology'];
-const CLASSES = ['Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
 const PAPER_TYPES = ['monthly_test', 'mid_term', 'final_exam', 'quiz', 'class_test'];
 const IMPORTANCE_BADGE = { high: 'badge-red', medium: 'badge-yellow', low: 'badge-gray' };
 
 export default function QuestionPapers() {
+  const { user } = useAuth();
+  // Dropdowns restricted to the teacher's assigned subjects/classes/sections.
+  const subjectOptions = subjectsFor(user);
+  const classOptions = classesFor(user);
   const [papers, setPapers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showGenerator, setShowGenerator] = useState(false);
@@ -24,7 +28,7 @@ export default function QuestionPapers() {
   const [predictions, setPredictions] = useState(null);
 
   const [genForm, setGenForm] = useState({
-    subject: '', class_name: '', paper_type: 'class_test',
+    subject: '', class_name: '', section: '', paper_type: 'class_test',
     total_marks: 100, duration_minutes: 60, topics: '',
     generation_mode: 'standard', use_past_papers: true,
     difficulty_distribution: { easy: 30, medium: 50, hard: 20 },
@@ -50,7 +54,7 @@ export default function QuestionPapers() {
       });
       setPapers((prev) => [data.paper, ...prev]);
       setShowGenerator(false);
-      setGenForm({ subject: '', class_name: '', paper_type: 'class_test', total_marks: 100, duration_minutes: 60, topics: '', generation_mode: 'standard', use_past_papers: true, difficulty_distribution: { easy: 30, medium: 50, hard: 20 } });
+      setGenForm({ subject: '', class_name: '', section: '', paper_type: 'class_test', total_marks: 100, duration_minutes: 60, topics: '', generation_mode: 'standard', use_past_papers: true, difficulty_distribution: { easy: 30, medium: 50, hard: 20 } });
     } catch (e) {
       setError(e.response?.data?.detail || e.response?.data?.error || 'Failed to generate paper. Ensure relevant books/papers are uploaded.');
     } finally {
@@ -157,7 +161,7 @@ export default function QuestionPapers() {
                     <span className="badge-blue capitalize">{p.paper_type?.replace('_', ' ')}</span>
                   </div>
                   <p className="text-xs text-muted mt-1">
-                    {p.subject} • {p.class_name} • {p.total_marks} marks • {p.duration_minutes} min
+                    {p.subject} • {p.class_name}{p.section ? ` - ${p.section}` : ''} • {p.total_marks} marks • {p.duration_minutes} min
                     {p.questions?.length > 0 && ` • ${p.questions.length} questions`}
                   </p>
                   <p className="text-xs text-faint">{new Date(p.created_at).toLocaleDateString()}</p>
@@ -216,16 +220,29 @@ export default function QuestionPapers() {
                   <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
                   <select value={genForm.subject} onChange={(e) => setGen('subject', e.target.value)} className="input-field">
                     <option value="">Select</option>
-                    {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-ink/90 mb-1">Class *</label>
-                  <select value={genForm.class_name} onChange={(e) => setGen('class_name', e.target.value)} className="input-field">
+                  <select value={genForm.class_name} onChange={(e) => setGenForm((f) => ({ ...f, class_name: e.target.value, section: '' }))} className="input-field">
                     <option value="">Select</option>
-                    {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    {classOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
+                {genForm.class_name && (
+                  <div>
+                    <label className="block text-sm font-medium text-ink/90 mb-1">Section</label>
+                    {sectionsFor(user, genForm.class_name).length > 0 ? (
+                      <select value={genForm.section} onChange={(e) => setGen('section', e.target.value)} className="input-field">
+                        <option value="">Whole class</option>
+                        {sectionsFor(user, genForm.class_name).map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    ) : (
+                      <input type="text" value={genForm.section} onChange={(e) => setGen('section', e.target.value)} className="input-field" placeholder="Optional (e.g. A)" />
+                    )}
+                  </div>
+                )}
                 <div>
                   <label className="block text-sm font-medium text-ink/90 mb-1">Paper Type</label>
                   <select value={genForm.paper_type} onChange={(e) => setGen('paper_type', e.target.value)} className="input-field">
@@ -378,14 +395,14 @@ export default function QuestionPapers() {
                   <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
                   <select value={predictForm.subject} onChange={(e) => setPredictForm((f) => ({ ...f, subject: e.target.value }))} className="input-field">
                     <option value="">Select</option>
-                    {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                    {subjectOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-ink/90 mb-1">Class *</label>
                   <select value={predictForm.class_name} onChange={(e) => setPredictForm((f) => ({ ...f, class_name: e.target.value }))} className="input-field">
                     <option value="">Select</option>
-                    {CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                    {classOptions.map((c) => <option key={c} value={c}>{c}</option>)}
                   </select>
                 </div>
               </div>

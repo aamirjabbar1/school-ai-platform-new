@@ -15,11 +15,7 @@ import WelcomeHero from './chat/WelcomeHero';
 import Composer from './chat/Composer';
 import SessionsDrawer from './chat/SessionsDrawer';
 import StatsBar from './chat/StatsBar';
-
-const SUBJECTS = [
-  'Mathematics', 'Science', 'English', 'Urdu', 'Islamiat',
-  'Computer Science', 'Social Studies', 'Physics', 'Chemistry', 'Biology', 'History', 'Geography',
-];
+import { SUBJECTS } from '../constants/academics';
 
 function parseDate(raw) {
   if (!raw) return null;
