@@ -29,6 +29,9 @@ CONTENT_TYPES = {
 # ─── Auto-detection helpers ───────────────────────────────────────────────────
 
 _SUBJECT_KEYWORDS: dict[str, list[str]] = {
+    # General Mathematics (Humanities Group) must be checked BEFORE Mathematics —
+    # _detect_subject returns the first match and "general mathematics" contains "math".
+    "General Mathematics (Humanities Group)": ["general mathematics", "general math", "general maths"],
     "Mathematics":      ["math", "maths", "algebra", "geometry", "calculus", "arithmetic", "trigonometry"],
     "Physics":          ["physics", "phys"],
     "Chemistry":        ["chemistry", "chem"],

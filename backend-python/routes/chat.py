@@ -19,6 +19,9 @@ logger = logging.getLogger("agent")
 
 # Auto-detect subject from message content
 SUBJECT_KEYWORDS = {
+    # General Mathematics (Humanities Group) is a separate subject from Science-group
+    # Mathematics; its explicit phrasing outscores the generic "math" keyword below.
+    "General Mathematics (Humanities Group)": ["general mathematics", "general math", "general maths", "humanities mathematics", "humanities math"],
     "Mathematics": ["math", "algebra", "geometry", "equation", "fraction", "calculus", "arithmetic", "trigonometry", "number", "formula"],
     "Science": ["science", "experiment", "hypothesis", "atom", "molecule", "energy", "force"],
     "Physics": ["physics", "velocity", "acceleration", "gravity", "newton", "momentum", "wave", "optics", "thermodynamics"],

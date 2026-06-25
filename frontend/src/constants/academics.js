@@ -7,10 +7,10 @@
 
 // Master Subject List — the teaching subjects available system-wide.
 export const SUBJECTS = [
-  'Mathematics', 'Science', 'General Science', 'English', 'Urdu', 'Islamiat',
-  'Translation of Holy Quran', 'Computer Science', 'Physics', 'Chemistry',
-  'Biology', 'Social Studies', 'History', 'Geography', 'General Knowledge',
-  'Civics', 'Economics', 'Education',
+  'Mathematics', 'General Mathematics (Humanities Group)', 'Science', 'General Science',
+  'English', 'Urdu', 'Islamiat', 'Translation of Holy Quran', 'Computer Science',
+  'Physics', 'Chemistry', 'Biology', 'Social Studies', 'History', 'Geography',
+  'General Knowledge', 'Civics', 'Economics', 'Education',
 ];
 
 // Knowledge Base also keeps a catch-all bucket for uploaded documents.
