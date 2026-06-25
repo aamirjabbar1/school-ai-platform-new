@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { chatAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { History, Plus, User } from 'lucide-react';
@@ -445,7 +447,7 @@ export default function ChatInterface({ role = 'student' }) {
                             <p className="whitespace-pre-wrap">{msg.content}</p>
                           ) : (
                             <div className="prose-chat">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                              <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>{msg.content}</ReactMarkdown>
                               {msg.streaming && msg.content && (
                                 <span className="inline-block w-1.5 h-4 rounded-sm bg-brand-cyan animate-pulse ml-0.5 align-middle" />
                               )}
