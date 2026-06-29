@@ -272,6 +272,80 @@ GRADE_ASSESSMENT_TOOL: dict[str, Any] = {
 }
 
 
+# Structured-output tool: a complete, curriculum-aligned lesson plan — an ordered
+# list of lessons plus a summary block. Mirrors the school's lesson-plan template.
+LESSON_PLAN_TOOL: dict[str, Any] = {
+    "name": "submit_lesson_plan",
+    "description": (
+        "Submit a complete lesson plan as a structured schedule. Call this exactly once. "
+        "Distribute the chapters/topics evenly across the available teaching weeks, keep a "
+        "logical topic sequence, reserve time for revision before exams, and never overload a "
+        "single period. Every lesson must be classroom-ready and curriculum-aligned."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Full plan title incl. subject, class and plan type"},
+            "overview": {"type": "string", "description": "1-3 sentence summary of how the course is sequenced across the term"},
+            "lessons": {
+                "type": "array",
+                "minItems": 1,
+                "description": "One entry per teaching period/session, in chronological order.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "week":               {"type": "integer", "minimum": 1, "description": "Week number"},
+                        "dates":              {"type": "string", "description": "Teaching date(s) for this lesson, e.g. '5-7 Aug'"},
+                        "day":                {"type": "string", "description": "Day of week, e.g. 'Monday'"},
+                        "period":             {"type": "string", "description": "Period / session number"},
+                        "chapter":            {"type": "string", "description": "Chapter or unit"},
+                        "topic":              {"type": "string"},
+                        "subtopic":           {"type": "string"},
+                        "objectives":         {"type": "string", "description": "Learning objectives for this lesson"},
+                        "outcomes":           {"type": "string", "description": "Expected learning outcomes"},
+                        "prior_knowledge":    {"type": "string"},
+                        "methodology":        {"type": "string", "description": "Teaching methodology / strategy"},
+                        "teacher_activities": {"type": "string"},
+                        "student_activities": {"type": "string"},
+                        "resources":          {"type": "string", "description": "Teaching aids / digital resources"},
+                        "real_life_examples": {"type": "string"},
+                        "hots":               {"type": "string", "description": "Higher-order-thinking / critical-thinking questions"},
+                        "group_activity":     {"type": "string", "description": "Group or individual activity"},
+                        "homework":           {"type": "string"},
+                        "classwork":          {"type": "string"},
+                        "assessment":         {"type": "string", "description": "Formative assessment / exit ticket / quiz"},
+                        "differentiation":    {"type": "string", "description": "Support for slow, average and advanced learners"},
+                        "remarks":            {"type": "string"},
+                    },
+                    "required": ["week", "dates", "topic", "objectives", "methodology"],
+                },
+            },
+            "summary": {
+                "type": "object",
+                "description": "End-of-plan totals and schedule, as in the school template.",
+                "properties": {
+                    "academic_session":        {"type": "string"},
+                    "subject":                 {"type": "string"},
+                    "grade":                   {"type": "string"},
+                    "board":                   {"type": "string"},
+                    "total_chapters":          {"type": "integer"},
+                    "total_weeks":             {"type": "integer"},
+                    "total_teaching_days":     {"type": "integer"},
+                    "total_lessons":           {"type": "integer"},
+                    "total_practical_lessons": {"type": "integer"},
+                    "total_assessments":       {"type": "integer"},
+                    "total_homework":          {"type": "integer"},
+                    "revision_schedule":       {"type": "string"},
+                    "exam_prep_schedule":      {"type": "string"},
+                    "expected_completion_date":{"type": "string"},
+                },
+            },
+        },
+        "required": ["title", "lessons"],
+    },
+}
+
+
 def _flatten_paper(paper_data: dict) -> tuple[list[dict], list[dict]]:
     """Flatten a submit_question_paper tool result into (questions, answer_key)."""
     questions: list[dict] = []
@@ -936,5 +1010,151 @@ CURRICULUM CONTENT:
 
     return {
         "content":   text,
+        "sources":   [s["title"] for s in kb_sources],
+    }
+
+
+# ─── GENERATE LESSON PLAN ────────────────────────────────────────────────────
+
+_PLAN_TYPE_GUIDANCE = {
+    "weekly":    "a detailed WEEKLY lesson plan (day-by-day, period-by-period for the week)",
+    "monthly":   "a MONTHLY lesson plan grouped by week",
+    "unit":      "a UNIT-WISE lesson plan covering the unit across its lessons",
+    "chapter":   "a CHAPTER-WISE lesson plan breaking the chapter into lessons",
+    "term":      "a TERM-WISE lesson plan spanning the whole term, week by week",
+    "annual":    "an ANNUAL lesson plan covering the full session, week by week, with all chapters distributed",
+    "revision":  "a REVISION plan focused on consolidating and revisiting prior chapters before exams",
+    "exam_prep": "an EXAM PREPARATION plan with focused revision, practice and mock assessment",
+    "practical": "a PRACTICAL / LAB lesson plan centred on experiments and lab activities",
+}
+
+
+async def generate_lesson_plan(params: dict, db: AsyncSession) -> dict:
+    """Generate a curriculum-aligned, classroom-ready lesson plan as a structured
+    schedule (lessons + summary). Grounds in the school knowledge base when
+    relevant content exists, otherwise builds from the teacher-supplied chapters
+    and topics."""
+    subject          = params["subject"]
+    class_level      = params["class_level"]
+    plan_type        = params.get("plan_type", "weekly")
+    board            = params.get("board") or ""
+    book_name        = params.get("book_name") or ""
+    academic_session = params.get("academic_session") or ""
+    start_date       = params.get("start_date") or ""
+    end_date         = params.get("end_date") or ""
+    num_weeks        = params.get("num_weeks")
+    days_per_week    = params.get("days_per_week")
+    periods_per_week = params.get("periods_per_week")
+    chapters         = params.get("chapters") or []          # list[str]
+    topics           = params.get("topics") or []            # list[str]
+    objectives       = params.get("learning_objectives") or ""
+    bloom_level      = params.get("bloom_level") or ""
+    methodology      = params.get("methodology") or ""
+    resources        = params.get("resources") or ""
+    homework_pref    = params.get("homework_pref") or ""
+    assessment_pref  = params.get("assessment_pref") or ""
+    holidays         = params.get("holidays") or ""
+    exam_schedule    = params.get("exam_schedule") or ""
+    revision_week    = params.get("revision_week") or ""
+    teacher_notes    = params.get("teacher_notes") or ""
+
+    school = get_school()
+
+    # Best-effort curriculum grounding (lesson plans are largely schedule-driven,
+    # so an empty KB is not fatal — fall back to the supplied chapters/topics).
+    topic_query = " ".join(chapters + topics) if (chapters or topics) else subject
+    book_results = await search_knowledge_base(
+        topic_query, subject=subject, class_level=class_level,
+        document_type="book", limit=12,
+    )
+    kb_context = build_context(book_results) or ""
+    kb_sources = build_kb_sources(book_results)
+
+    type_desc = _PLAN_TYPE_GUIDANCE.get(plan_type, _PLAN_TYPE_GUIDANCE["weekly"])
+
+    # Assemble the teacher-supplied inputs into a requirements block.
+    def _line(label: str, value: Any) -> str:
+        return f"- {label}: {value}\n" if value not in (None, "", []) else ""
+
+    requirements = (
+        _line("Academic session", academic_session)
+        + _line("Subject", subject)
+        + _line("Grade/Class", class_level)
+        + _line("Board/Curriculum", board)
+        + _line("Book", book_name)
+        + _line("Chapters/Units", ", ".join(chapters) if chapters else "")
+        + _line("Topics/Subtopics", ", ".join(topics) if topics else "")
+        + _line("Start date", start_date)
+        + _line("End date", end_date)
+        + _line("Number of teaching weeks", num_weeks)
+        + _line("Teaching days per week", days_per_week)
+        + _line("Periods per week", periods_per_week)
+        + _line("Learning objectives", objectives)
+        + _line("Bloom's taxonomy level", bloom_level)
+        + _line("Preferred teaching methodology", methodology)
+        + _line("Teaching resources", resources)
+        + _line("Homework preference", homework_pref)
+        + _line("Assessment preference", assessment_pref)
+        + _line("School holidays", holidays)
+        + _line("Examination schedule", exam_schedule)
+        + _line("Revision week", revision_week)
+        + _line("Teacher notes", teacher_notes)
+    )
+
+    instructions = f"""Create {type_desc} for {school}.
+
+You are an expert lesson-plan designer. Build a practical, teacher-friendly,
+classroom-ready plan that follows international best practice and stays aligned
+with the selected curriculum.
+
+INTELLIGENT SCHEDULING RULES:
+- Distribute all chapters/topics evenly across the available teaching weeks.
+- Keep a logical topic sequence and sensible difficulty progression.
+- Reserve time for revision before any exam.
+- Account for the listed holidays and exam dates — shift lessons so nothing clashes.
+- Never overload a single period; keep each lesson realistic for its duration.
+- Suggest engaging activities, ICT integration, real-life examples and HOTS questions.
+- Recommend homework and a formative assessment for lessons where it fits.
+- Add differentiation for slow, average and advanced learners.
+
+REQUIREMENTS:
+{requirements or '- (Use sensible defaults where details are not provided.)'}
+
+When details are missing, fill them with sound pedagogical defaults rather than
+leaving fields blank. Produce a complete plan covering the whole period, then end
+the summary with accurate totals and the expected course-completion date.
+
+{("CURRICULUM CONTENT (align topics and objectives to this where relevant):" + chr(10) + kb_context) if kb_context else "(No curriculum content was found in the knowledge base; build the plan from the chapters/topics above.)"}
+
+Now call the `submit_lesson_plan` tool exactly once with the complete plan."""
+
+    plan_system = [{
+        "type": "text",
+        "text": (
+            f"You are an expert AI lesson-plan generator for {school}. You design comprehensive, "
+            "curriculum-aligned, classroom-ready teaching schedules. Always finish by calling the "
+            "submit_lesson_plan tool with the complete structured plan."
+        ),
+        "cache_control": {"type": "ephemeral"},
+    }]
+
+    plan_tool = dict(LESSON_PLAN_TOOL)
+    plan_tool["cache_control"] = {"type": "ephemeral"}
+
+    response = await get_async_client().messages.create(
+        model=get_model(),
+        max_tokens=8192,
+        system=plan_system,
+        messages=[{"role": "user", "content": instructions}],
+        tools=[plan_tool],
+        tool_choice={"type": "tool", "name": "submit_lesson_plan"},
+    )
+
+    plan_data = _extract_tool_input(response, "submit_lesson_plan")
+    if not plan_data:
+        raise ValueError("Claude did not return a structured lesson plan.")
+
+    return {
+        "plan_data": plan_data,
         "sources":   [s["title"] for s in kb_sources],
     }

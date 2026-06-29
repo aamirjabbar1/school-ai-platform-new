@@ -15,6 +15,7 @@ import TeacherChat from './pages/teacher/Chat';
 import CreateAssignment from './pages/teacher/CreateAssignment';
 import TeacherAssignments from './pages/teacher/Assignments';
 import QuestionPapers from './pages/teacher/QuestionPapers';
+import LessonPlans from './pages/teacher/LessonPlans';
 import AdminDashboard from './pages/admin/Dashboard';
 import ManageUsers from './pages/admin/ManageUsers';
 import KnowledgeBase from './pages/admin/KnowledgeBase';
@@ -70,6 +71,7 @@ export default function App() {
           <Route path="/teacher/assignments" element={<ProtectedRoute allowedRoles={['teacher']}><TeacherAssignments /></ProtectedRoute>} />
           <Route path="/teacher/assignments/create" element={<ProtectedRoute allowedRoles={['teacher']}><CreateAssignment /></ProtectedRoute>} />
           <Route path="/teacher/question-papers" element={<ProtectedRoute allowedRoles={['teacher']}><QuestionPapers /></ProtectedRoute>} />
+          <Route path="/teacher/lesson-plans" element={<ProtectedRoute allowedRoles={['teacher']}><LessonPlans /></ProtectedRoute>} />
 
           {/* Admin Routes */}
           <Route path="/admin/dashboard" element={<ProtectedRoute allowedRoles={['admin']}><AdminDashboard /></ProtectedRoute>} />

@@ -44,6 +44,7 @@ class User(Base):
     submissions = relationship("Submission", back_populates="student", foreign_keys="Submission.student_id")
     documents = relationship("Document", back_populates="uploader", foreign_keys="Document.uploaded_by")
     question_papers = relationship("QuestionPaper", back_populates="teacher", foreign_keys="QuestionPaper.teacher_id")
+    lesson_plans = relationship("LessonPlan", back_populates="teacher", foreign_keys="LessonPlan.teacher_id")
     chat_history = relationship("ChatHistory", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
 
@@ -342,6 +343,50 @@ class QuestionPaper(Base):
         if not hide_answers:
             d["answer_key"] = self.answer_key
         return d
+
+
+# ─── LESSON PLAN ──────────────────────────────────────────────────────────────
+
+class LessonPlan(Base):
+    __tablename__ = "lesson_plans"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    title = Column(String(255), nullable=False)
+    subject = Column(String(100), nullable=False)
+    class_name = Column(String(50), nullable=False)
+    # Target section within the class (e.g. "A"). Null = whole class.
+    section = Column(String(50), nullable=True)
+    teacher_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    # plan_type: weekly | monthly | unit | chapter | term | annual | revision | exam_prep | practical
+    plan_type = Column(String(30), nullable=False, default="weekly")
+    board = Column(String(100), nullable=True)            # Federal Board, Cambridge, …
+    book_name = Column(String(255), nullable=True)
+    academic_session = Column(String(40), nullable=True)  # e.g. "2025-2026"
+    start_date = Column(String(40), nullable=True)        # free-text; plan rows carry their own dates
+    end_date = Column(String(40), nullable=True)
+    # The structured generated plan: {"lessons": [...], "summary": {...}}.
+    plan_data = Column(JSON, nullable=False, default=dict)
+    # The generation inputs, kept so a plan can be duplicated / regenerated.
+    inputs = Column(JSON, nullable=True, default=dict)
+    is_published = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    teacher = relationship("User", back_populates="lesson_plans", foreign_keys=[teacher_id])
+
+    def to_dict(self):
+        return {
+            "id": self.id, "title": self.title, "subject": self.subject,
+            "class_name": self.class_name, "section": self.section,
+            "teacher_id": self.teacher_id, "plan_type": self.plan_type,
+            "board": self.board, "book_name": self.book_name,
+            "academic_session": self.academic_session,
+            "start_date": self.start_date, "end_date": self.end_date,
+            "plan_data": self.plan_data or {}, "inputs": self.inputs or {},
+            "is_published": self.is_published,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
 
 
 # ─── CHAT HISTORY ─────────────────────────────────────────────────────────────

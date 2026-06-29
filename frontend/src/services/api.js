@@ -110,6 +110,21 @@ export const questionPaperAPI = {
   gradePractice: (data) => api.post('/question-papers/practice/grade', data, { timeout: 120000 }),
 };
 
+// ─── LESSON PLANS ───────────────────────────────────────────────────────────
+export const lessonPlanAPI = {
+  getAll: (params) => api.get('/lesson-plans', { params }),
+  getOne: (id) => api.get(`/lesson-plans/${id}`),
+  // Generation runs an LLM call + RAG retrieval; allow up to 10 min.
+  generate: (data) => api.post('/lesson-plans/generate', data, { timeout: 600000 }),
+  create: (data) => api.post('/lesson-plans', data),
+  update: (id, data) => api.put(`/lesson-plans/${id}`, data),
+  togglePublish: (id) => api.put(`/lesson-plans/${id}/publish`),
+  duplicate: (id) => api.post(`/lesson-plans/${id}/duplicate`),
+  delete: (id) => api.delete(`/lesson-plans/${id}`),
+  downloadPdf: (id) => api.get(`/lesson-plans/${id}/pdf`, { responseType: 'blob' }),
+  downloadDocx: (id) => api.get(`/lesson-plans/${id}/docx`, { responseType: 'blob' }),
+};
+
 // ─── ADMIN ────────────────────────────────────────────────────────────────────
 export const adminAPI = {
   getDashboard: () => api.get('/admin/dashboard'),

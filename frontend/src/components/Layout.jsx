@@ -7,6 +7,7 @@ import ThemeToggle from './ThemeToggle';
 import {
   LayoutDashboard, MessageSquare, BookOpen, FileText, Users,
   Database, LogOut, Menu, X, ClipboardList, Sparkles, GraduationCap, FileSpreadsheet,
+  CalendarRange,
 } from 'lucide-react';
 
 const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
@@ -25,6 +26,7 @@ const navConfig = {
     { path: '/teacher/assignments/create', icon: ClipboardList,   label: 'Create Assignment' },
     { path: '/teacher/assignments',        icon: BookOpen,        label: 'Review & Grade' },
     { path: '/teacher/question-papers',    icon: FileText,        label: 'Question Papers' },
+    { path: '/teacher/lesson-plans',       icon: CalendarRange,   label: 'Lesson Plans' },
   ],
   admin: [
     { path: '/admin/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
