@@ -62,7 +62,7 @@ class UpdateLessonPlanRequest(BaseModel):
 
 
 PLAN_TYPES = {
-    "weekly", "monthly", "unit", "chapter", "term",
+    "daily", "date_wise", "weekly", "monthly", "unit", "chapter", "term",
     "annual", "revision", "exam_prep", "practical",
 }
 

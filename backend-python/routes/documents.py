@@ -105,7 +105,12 @@ async def get_documents(
 
 # ─── Upload ───────────────────────────────────────────────────────────────────
 
-ALLOWED_DOCUMENT_TYPES = {"book", "exam", "assignment", "notes", "worksheet"}
+ALLOWED_DOCUMENT_TYPES = {
+    "book", "exam", "assignment", "notes", "worksheet",
+    # Academic-planning sources consulted automatically by the Lesson Plan Generator.
+    "academic_calendar",  # school's annual academic plan (primary scheduling source)
+    "official_notice",    # official circulars that temporarily override the calendar
+}
 ALLOWED_LANGUAGES = {"English", "Urdu", "Bilingual"}
 # Sub-classification for question papers (document_type == "exam")
 ALLOWED_PAPER_TYPES = {"past_paper", "test", "midterm", "final", "mcqs"}
@@ -291,7 +296,10 @@ async def get_stats(
             COUNT(DISTINCT d.id)                                          AS total_documents,
             COUNT(DISTINCT d.id) FILTER (WHERE d.is_ingested = true)      AS ingested_documents,
             COUNT(DISTINCT d.id) FILTER (WHERE d.document_type = 'exam')  AS question_papers,
-            COUNT(DISTINCT d.id) FILTER (WHERE d.document_type != 'exam'
+            COUNT(DISTINCT d.id) FILTER (WHERE d.document_type = 'academic_calendar') AS academic_calendars,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.document_type = 'official_notice')   AS official_notices,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.document_type NOT IN
+                                            ('exam', 'academic_calendar', 'official_notice')
                                           OR d.document_type IS NULL)     AS books,
             COUNT(DISTINCT dc.id)                                         AS total_chunks,
             COUNT(DISTINCT d.subject)                                     AS subjects_covered,

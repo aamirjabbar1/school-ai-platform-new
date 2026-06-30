@@ -9,8 +9,10 @@ import { useAuth } from '../../context/AuthContext';
 import { subjectsFor, classesFor, sectionsFor } from '../../constants/academics';
 
 const PLAN_TYPES = [
+  { value: 'daily',     label: 'Daily' },
   { value: 'weekly',    label: 'Weekly' },
   { value: 'monthly',   label: 'Monthly' },
+  { value: 'date_wise', label: 'Date-wise' },
   { value: 'unit',      label: 'Unit-wise' },
   { value: 'chapter',   label: 'Chapter-wise' },
   { value: 'term',      label: 'Term-wise' },
@@ -324,6 +326,11 @@ function GeneratorModal({ form, set, user, subjectOptions, classOptions, generat
 
           {/* Assessment & extras */}
           <Section title="Assessment & Calendar">
+            <div className="p-2.5 mb-1 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800">
+              The AI automatically follows the school's uploaded <strong>Academic Calendar</strong> and any
+              <strong> Official Notices / Emergency Updates</strong> (holidays, exams, revision weeks, vacations).
+              The fields below are optional extra hints.
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Homework Preference"><input type="text" value={form.homework_pref} onChange={(e) => set('homework_pref', e.target.value)} className="input-field" placeholder="e.g. After every lesson" /></Field>
               <Field label="Assessment Preference"><input type="text" value={form.assessment_pref} onChange={(e) => set('assessment_pref', e.target.value)} className="input-field" placeholder="e.g. Weekly quiz, unit tests" /></Field>

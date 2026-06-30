@@ -10,6 +10,7 @@ Schema:
   subject         VARCHAR(100)         filter: Math, Science, English, Urdu …
   class_level     VARCHAR(50)          filter: Grade 1 … Grade 12
   document_type   VARCHAR(50)          filter: book | exam | assignment | notes | worksheet
+                                                | academic_calendar | official_notice
   language        VARCHAR(20)          filter: English | Urdu | Bilingual
   academic_year   VARCHAR(20)          filter: 2024-2025
   term            VARCHAR(30)          filter: Term 1 | Term 2 | Term 3 | Annual

@@ -1222,3 +1222,103 @@ def build_context(search_results: list[dict]) -> str | None:
         parts.append(f"{header}\n{r['chunk_text']}")
 
     return "\n\n---\n\n".join(parts)
+
+
+# ─── ACADEMIC CALENDAR / OFFICIAL NOTICE RETRIEVAL ───────────────────────────
+#
+# Calendars and official notices are date-driven, school-wide documents. A
+# topic-based semantic query ("Cell Biology, Genetics") would never surface a
+# page of holiday dates or exam schedules, so these are NOT retrieved via the
+# normal hybrid search. Instead we pull the most recently uploaded documents of
+# the requested type WHOLE (all chunks, in reading order) and let the LLM read
+# the complete schedule. Newest-first ordering implements "always use the latest
+# active version".
+
+_SCHOOL_WIDE_CLASS_MARKERS = {"", "all classes", "all", "general", "all class"}
+
+
+def _class_matches_schedule_doc(doc_class: str | None, target_class: str | None) -> bool:
+    """A calendar/notice applies when it targets this class or is school-wide."""
+    cl = (doc_class or "").strip().lower()
+    if cl in _SCHOOL_WIDE_CLASS_MARKERS:
+        return True
+    if not target_class:
+        return True
+    return cl == target_class.strip().lower()
+
+
+async def fetch_schedule_documents(
+    db: AsyncSession,
+    document_type: str,
+    class_level: str | None = None,
+    max_docs: int = 3,
+    max_chunks_per_doc: int = 60,
+) -> list[dict]:
+    """Fetch the most recent ingested documents of a given type with their full
+    chunk text, newest-first.
+
+    Used for `academic_calendar` and `official_notice` documents, which the
+    Lesson Plan Generator must always consult. Prefers documents that target the
+    given class (or are school-wide); if the class filter removes everything it
+    falls back to all documents of that type so a mis-tagged calendar is never
+    silently ignored.
+    """
+    result = await db.execute(
+        select(Document)
+        .where(
+            Document.document_type == document_type,
+            Document.is_ingested.is_(True),
+        )
+        .order_by(Document.created_at.desc())
+    )
+    docs = list(result.scalars().all())
+    if not docs:
+        return []
+
+    filtered = [d for d in docs if _class_matches_schedule_doc(d.class_level, class_level)] or docs
+    selected = filtered[:max_docs]
+
+    items: list[dict] = []
+    for doc in selected:
+        chunk_rows = await db.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == doc.id)
+            .order_by(DocumentChunk.chunk_index)
+            .limit(max_chunks_per_doc)
+        )
+        text = "\n\n".join(c.chunk_text for c in chunk_rows.scalars().all()).strip()
+        if not text:
+            continue
+        items.append({
+            "document_id":   doc.id,
+            "title":         doc.title,
+            "description":   doc.description or "",
+            "class_level":   doc.class_level,
+            "academic_year": doc.academic_year or "",
+            "uploaded_at":   doc.created_at.isoformat() if doc.created_at else "",
+            "text":          text,
+        })
+    return items
+
+
+def build_schedule_context(items: list[dict], heading: str) -> str:
+    """Format calendar/notice documents into a prompt block, newest-first and
+    clearly labelled so the model knows which version is the latest active one."""
+    if not items:
+        return ""
+    parts: list[str] = []
+    for i, it in enumerate(items):
+        meta: list[str] = []
+        if it.get("uploaded_at"):
+            meta.append(f"uploaded {it['uploaded_at'][:10]}")
+        if it.get("academic_year"):
+            meta.append(it["academic_year"])
+        if it.get("class_level"):
+            meta.append(it["class_level"])
+        meta_str = f" ({', '.join(meta)})" if meta else ""
+        label = "LATEST / ACTIVE" if i == 0 else f"older #{i + 1}"
+        header = f'[{heading} — {label}: "{it["title"]}"{meta_str}]'
+        if it.get("description"):
+            header += f"\nAdmin note: {it['description']}"
+        parts.append(f"{header}\n{it['text']}")
+    return "\n\n---\n\n".join(parts)

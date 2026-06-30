@@ -22,7 +22,12 @@ from typing import Any, AsyncGenerator
 import anthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services.document_service import search_knowledge_base, build_context
+from services.document_service import (
+    search_knowledge_base,
+    build_context,
+    fetch_schedule_documents,
+    build_schedule_context,
+)
 from services.memory_service import search_user_memory, build_memory_context
 
 
@@ -1017,6 +1022,8 @@ CURRICULUM CONTENT:
 # ─── GENERATE LESSON PLAN ────────────────────────────────────────────────────
 
 _PLAN_TYPE_GUIDANCE = {
+    "daily":     "a detailed DAILY lesson plan for a single teaching day (period-by-period)",
+    "date_wise": "a DATE-WISE lesson plan mapped to specific calendar dates across the selected range",
     "weekly":    "a detailed WEEKLY lesson plan (day-by-day, period-by-period for the week)",
     "monthly":   "a MONTHLY lesson plan grouped by week",
     "unit":      "a UNIT-WISE lesson plan covering the unit across its lessons",
@@ -1070,6 +1077,28 @@ async def generate_lesson_plan(params: dict, db: AsyncSession) -> dict:
     kb_context = build_context(book_results) or ""
     kb_sources = build_kb_sources(book_results)
 
+    # Always consult the uploaded Academic Calendar (primary scheduling source)
+    # and any Official Notices / Emergency Updates (which temporarily override it).
+    # These are date-driven and school-wide, so they are pulled whole — newest
+    # first — rather than via topic-based semantic search.
+    calendar_items = await fetch_schedule_documents(
+        db, "academic_calendar", class_level=class_level, max_docs=2,
+    )
+    notice_items = await fetch_schedule_documents(
+        db, "official_notice", class_level=class_level, max_docs=6,
+    )
+    calendar_context = build_schedule_context(calendar_items, "ACADEMIC CALENDAR")
+    notice_context = build_schedule_context(notice_items, "OFFICIAL NOTICE / EMERGENCY UPDATE")
+
+    schedule_sources = (
+        [{"title": it["title"], "subject": it.get("class_level", ""),
+          "class_level": it.get("class_level", ""), "document_type": "academic_calendar"}
+         for it in calendar_items]
+        + [{"title": it["title"], "subject": it.get("class_level", ""),
+            "class_level": it.get("class_level", ""), "document_type": "official_notice"}
+           for it in notice_items]
+    )
+
     type_desc = _PLAN_TYPE_GUIDANCE.get(plan_type, _PLAN_TYPE_GUIDANCE["weekly"])
 
     # Assemble the teacher-supplied inputs into a requirements block.
@@ -1101,17 +1130,63 @@ async def generate_lesson_plan(params: dict, db: AsyncSession) -> dict:
         + _line("Teacher notes", teacher_notes)
     )
 
+    # Authoritative scheduling block: calendar + notices the plan MUST respect.
+    if calendar_context or notice_context:
+        schedule_block = (
+            "ACADEMIC SCHEDULING SOURCES — consult these BEFORE planning. They are "
+            "authoritative for which days are teaching days, holidays, vacations, "
+            "exams, revision weeks and events:\n\n"
+            + (calendar_context or "(No Academic Calendar uploaded.)")
+            + "\n\n"
+            + (
+                notice_context
+                or "(No Official Notices / Emergency Updates uploaded.)"
+            )
+        )
+    else:
+        schedule_block = (
+            "ACADEMIC SCHEDULING SOURCES: No Academic Calendar or Official Notices "
+            "have been uploaded for this class. Build the schedule from the "
+            "teacher-supplied dates, holidays and exam fields below."
+        )
+
     instructions = f"""Create {type_desc} for {school}.
 
 You are an expert lesson-plan designer. Build a practical, teacher-friendly,
 classroom-ready plan that follows international best practice and stays aligned
 with the selected curriculum.
 
+{schedule_block}
+
+SCHEDULING PRECEDENCE & CALENDAR RULES (apply strictly):
+- The uploaded Academic Calendar is the PRIMARY source for all scheduling
+  (session dates, teaching weeks, unit tests, mid-terms, finals, revision weeks,
+  sports week, PTMs, school events, public holidays, summer/winter vacations,
+  co-curricular activities).
+- Official Notices / Emergency Updates OVERRIDE the Academic Calendar for any
+  dates they affect (government/security/election/weather/health closures,
+  revised vacation or examination dates, board/PEIRA/FDE notifications). When a
+  notice conflicts with the calendar, follow the NOTICE.
+- If multiple calendars or notices are present, use the one marked
+  "LATEST / ACTIVE" (listed first) — it is the latest active version.
+- NEVER schedule instructional/new-topic lessons on holidays, vacations, or
+  closure days. If such a day falls inside the requested range, mark it clearly
+  as a non-teaching day (state the reason, e.g. "Public Holiday — no class") and
+  do not assign teaching content to it.
+- During Revision Weeks: generate revision-focused lessons that consolidate
+  earlier chapters; do NOT introduce new topics.
+- During Examination periods: prioritise assessments, practice papers, exam
+  preparation and review sessions instead of new content.
+- During Sports Week, PTM week, school events or other scheduled activities:
+  adjust the plan (lighter/no instructional load) to fit the activity.
+- The teacher-supplied holiday/exam/revision fields in REQUIREMENTS are
+  ADDITIONAL hints; if they conflict with an Official Notice, the notice wins.
+
 INTELLIGENT SCHEDULING RULES:
-- Distribute all chapters/topics evenly across the available teaching weeks.
+- Distribute all chapters/topics evenly across the available TEACHING days only
+  (after removing holidays, vacations, exams and events identified above).
 - Keep a logical topic sequence and sensible difficulty progression.
 - Reserve time for revision before any exam.
-- Account for the listed holidays and exam dates — shift lessons so nothing clashes.
 - Never overload a single period; keep each lesson realistic for its duration.
 - Suggest engaging activities, ICT integration, real-life examples and HOTS questions.
 - Recommend homework and a formative assessment for lessons where it fits.
@@ -1156,5 +1231,6 @@ Now call the `submit_lesson_plan` tool exactly once with the complete plan."""
 
     return {
         "plan_data": plan_data,
-        "sources":   [s["title"] for s in kb_sources],
+        "sources":   [s["title"] for s in kb_sources]
+                     + [s["title"] for s in schedule_sources],
     }

@@ -244,6 +244,7 @@ class Document(Base):
     subject = Column(String(100), nullable=False)
     class_level = Column(String(50), nullable=False)
     # document_type: "book" | "exam" | "assignment" | "notes" | "worksheet"
+    #                | "academic_calendar" | "official_notice"
     document_type = Column(String(50), nullable=False, default="book")
     # language: "English" | "Urdu" | "Bilingual"
     language = Column(String(20), nullable=False, default="English")
