@@ -277,76 +277,217 @@ GRADE_ASSESSMENT_TOOL: dict[str, Any] = {
 }
 
 
-# Structured-output tool: a complete, curriculum-aligned lesson plan — an ordered
-# list of lessons plus a summary block. Mirrors the school's lesson-plan template.
+# Structured-output tool: a complete, print-ready Lahore School System (LSS)
+# Weekly Lesson Plan — a rich 17-section teaching document (NOT a summary).
+# Every section must hold meaningful, classroom-ready educational content.
 LESSON_PLAN_TOOL: dict[str, Any] = {
     "name": "submit_lesson_plan",
     "description": (
-        "Submit a complete lesson plan as a structured schedule. Call this exactly once. "
-        "Distribute the chapters/topics evenly across the available teaching weeks, keep a "
-        "logical topic sequence, reserve time for revision before exams, and never overload a "
-        "single period. Every lesson must be classroom-ready and curriculum-aligned."
+        "Submit a complete, professional, print-ready Weekly Lesson Plan for Lahore School "
+        "System (LSS), Pakistan. Call this exactly once. The plan is a detailed 17-section "
+        "teaching document prepared to the standard of an experienced Academic Coordinator — "
+        "NOT a summary. Every section must contain rich, meaningful, classroom-ready content "
+        "written in simple, child-friendly English. Never leave a section empty and never use "
+        "placeholders. Align activities with Bloom's Taxonomy and 21st-century learning skills."
     ),
     "input_schema": {
         "type": "object",
         "properties": {
-            "title": {"type": "string", "description": "Full plan title incl. subject, class and plan type"},
-            "overview": {"type": "string", "description": "1-3 sentence summary of how the course is sequenced across the term"},
-            "lessons": {
-                "type": "array",
-                "minItems": 1,
-                "description": "One entry per teaching period/session, in chronological order.",
+            "title": {"type": "string", "description": "Full plan title, e.g. 'Weekly Lesson Plan — Science (Class 3) — Unit 4: Living Things'"},
+
+            # 1. Cover Page
+            "cover": {
+                "type": "object",
+                "description": "Cover-page identity block.",
+                "properties": {
+                    "subject":          {"type": "string"},
+                    "class_name":       {"type": "string"},
+                    "book_name":        {"type": "string"},
+                    "edition":          {"type": "string"},
+                    "academic_session": {"type": "string"},
+                    "term":             {"type": "string"},
+                    "unit_number":      {"type": "string"},
+                    "unit_title":       {"type": "string"},
+                    "chapter_topic":    {"type": "string", "description": "Chapter / topic covered this week"},
+                },
+                "required": ["subject", "class_name", "chapter_topic"],
+            },
+
+            # 2. Students Learning Outcomes
+            "learning_outcomes": {
+                "type": "array", "minItems": 6, "maxItems": 10,
+                "description": "6-10 measurable outcomes. Each entry completes the stem 'Students will be able to …' (write the outcome only, without the stem).",
+                "items": {"type": "string"},
+            },
+
+            # 3. Starter Activity
+            "starter_activity": {
+                "type": "string",
+                "description": "An engaging warm-up using questioning, observation, discussion, movement or real-life objects. Multi-sentence, teacher-usable.",
+            },
+
+            # 4. Brainstorming Questions
+            "brainstorming_questions": {
+                "type": "array", "minItems": 4,
+                "description": "Thought-provoking oral questions that activate prior knowledge.",
+                "items": {"type": "string"},
+            },
+
+            # 5. Teaching Methodology (LARGEST section)
+            "teaching_methodology": {
+                "type": "array", "minItems": 5,
+                "description": (
+                    "The LARGEST, most detailed section. Break teaching into ordered stages. Explain every "
+                    "important concept step by step and weave in demonstrations, classroom discussion, picture "
+                    "explanation, real-life examples, hands-on learning, pair/group work, inquiry, practical "
+                    "activities, teacher questioning and explanations of difficult vocabulary."
+                ),
                 "items": {
                     "type": "object",
                     "properties": {
-                        "week":               {"type": "integer", "minimum": 1, "description": "Week number"},
-                        "dates":              {"type": "string", "description": "Teaching date(s) for this lesson, e.g. '5-7 Aug'"},
-                        "day":                {"type": "string", "description": "Day of week, e.g. 'Monday'"},
-                        "period":             {"type": "string", "description": "Period / session number"},
-                        "chapter":            {"type": "string", "description": "Chapter or unit"},
-                        "topic":              {"type": "string"},
-                        "subtopic":           {"type": "string"},
-                        "objectives":         {"type": "string", "description": "Learning objectives for this lesson"},
-                        "outcomes":           {"type": "string", "description": "Expected learning outcomes"},
-                        "prior_knowledge":    {"type": "string"},
-                        "methodology":        {"type": "string", "description": "Teaching methodology / strategy"},
-                        "teacher_activities": {"type": "string"},
-                        "student_activities": {"type": "string"},
-                        "resources":          {"type": "string", "description": "Teaching aids / digital resources"},
-                        "real_life_examples": {"type": "string"},
-                        "hots":               {"type": "string", "description": "Higher-order-thinking / critical-thinking questions"},
-                        "group_activity":     {"type": "string", "description": "Group or individual activity"},
-                        "homework":           {"type": "string"},
-                        "classwork":          {"type": "string"},
-                        "assessment":         {"type": "string", "description": "Formative assessment / exit ticket / quiz"},
-                        "differentiation":    {"type": "string", "description": "Support for slow, average and advanced learners"},
-                        "remarks":            {"type": "string"},
+                        "heading": {"type": "string", "description": "Stage name, e.g. 'Introduction & Real-life Hook'"},
+                        "detail":  {"type": "string", "description": "Rich, detailed teacher instructions for this stage (several sentences)."},
                     },
-                    "required": ["week", "dates", "topic", "objectives", "methodology"],
+                    "required": ["heading", "detail"],
                 },
             },
-            "summary": {
+
+            # 6. Guided Practice
+            "guided_practice": {"type": "string", "description": "Teacher-guided activities done together with the class."},
+
+            # 7. Independent Practice
+            "independent_practice": {"type": "string", "description": "Notebook work and individual activities pupils do on their own."},
+
+            # 8. Wrap-up
+            "wrap_up": {
                 "type": "object",
-                "description": "End-of-plan totals and schedule, as in the school template.",
+                "description": "End-of-lesson consolidation.",
                 "properties": {
-                    "academic_session":        {"type": "string"},
-                    "subject":                 {"type": "string"},
-                    "grade":                   {"type": "string"},
-                    "board":                   {"type": "string"},
-                    "total_chapters":          {"type": "integer"},
-                    "total_weeks":             {"type": "integer"},
-                    "total_teaching_days":     {"type": "integer"},
-                    "total_lessons":           {"type": "integer"},
-                    "total_practical_lessons": {"type": "integer"},
-                    "total_assessments":       {"type": "integer"},
-                    "total_homework":          {"type": "integer"},
-                    "revision_schedule":       {"type": "string"},
-                    "exam_prep_schedule":      {"type": "string"},
-                    "expected_completion_date":{"type": "string"},
+                    "revision_questions": {"type": "array", "items": {"type": "string"}, "description": "Quick revision questions."},
+                    "oral_recap":         {"type": "string", "description": "Oral recap of the day's learning."},
+                    "quick_review":       {"type": "string", "description": "A quick whole-class review activity."},
                 },
+                "required": ["revision_questions", "oral_recap"],
+            },
+
+            # 9. Resources Required
+            "resources": {
+                "type": "array", "minItems": 4,
+                "description": "Classroom resources: textbook, flashcards, charts, real objects, whiteboard, multimedia, worksheets, models, activity material.",
+                "items": {"type": "string"},
+            },
+
+            # 10. Assessment
+            "assessment": {
+                "type": "array", "minItems": 4,
+                "description": "Assessment methods: oral questioning, observation, notebook checking, worksheet, concept checking, exit ticket, class participation.",
+                "items": {"type": "string"},
+            },
+
+            # 11. Week-wise Planning
+            "weekly_plan": {
+                "type": "array", "minItems": 4,
+                "description": (
+                    "Realistic, balanced day-by-day plan (Day 1-4, add Day 5 if needed). Spread introduction, "
+                    "reading, explanation, book exercise, notebook work, practical, concept check, worksheet, "
+                    "revision, test/assessment and homework sensibly across the days."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "day":       {"type": "string", "description": "e.g. 'Day 1' (add the date if a calendar is supplied)"},
+                        "classwork": {"type": "string", "description": "What is taught/done in class that day."},
+                        "homework":  {"type": "string", "description": "Homework set that day."},
+                    },
+                    "required": ["day", "classwork", "homework"],
+                },
+            },
+
+            # 12. Vocabulary
+            "vocabulary": {
+                "type": "array", "minItems": 15, "maxItems": 25,
+                "description": "15-25 important words with child-friendly meanings.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "word":    {"type": "string"},
+                        "meaning": {"type": "string", "description": "Simple, age-appropriate definition."},
+                    },
+                    "required": ["word", "meaning"],
+                },
+            },
+
+            # 13. Question / Answers
+            "qa": {
+                "type": "array", "minItems": 5, "maxItems": 10,
+                "description": "5-10 detailed questions with complete, age-appropriate answers.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string"},
+                        "answer":   {"type": "string", "description": "Complete answer in simple English."},
+                    },
+                    "required": ["question", "answer"],
+                },
+            },
+
+            # 14. Worksheets
+            "worksheets": {
+                "type": "array", "minItems": 4,
+                "description": (
+                    "Classroom worksheet ideas. Cover a variety of formats: MCQs, fill in the blanks, match the "
+                    "following, true/false, label the diagram, short answers, picture identification, sorting."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "type":  {"type": "string", "description": "Worksheet type, e.g. 'Fill in the blanks'"},
+                        "items": {"type": "array", "items": {"type": "string"}, "description": "2-5 sample questions/items of this type."},
+                    },
+                    "required": ["type", "items"],
+                },
+            },
+
+            # 15. Differentiated Instruction
+            "differentiation": {
+                "type": "object",
+                "description": "Support tailored to each learner group.",
+                "properties": {
+                    "slow_learners":   {"type": "string"},
+                    "average_learners":{"type": "string"},
+                    "high_achievers":  {"type": "string"},
+                },
+                "required": ["slow_learners", "average_learners", "high_achievers"],
+            },
+
+            # 16. Cross-Curricular Links
+            "cross_curricular": {
+                "type": "array", "minItems": 2,
+                "description": "Connections with English, Mathematics, Art, ICT, Social Studies and Islamic Studies (where relevant).",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "subject":    {"type": "string"},
+                        "connection": {"type": "string", "description": "How this lesson links to that subject."},
+                    },
+                    "required": ["subject", "connection"],
+                },
+            },
+
+            # 17. Values & Life Skills
+            "values": {
+                "type": "array", "minItems": 3,
+                "description": "Values and life skills nurtured, e.g. respect, responsibility, cleanliness, safety, teamwork, environmental care, kindness.",
+                "items": {"type": "string"},
             },
         },
-        "required": ["title", "lessons"],
+        "required": [
+            "title", "cover", "learning_outcomes", "starter_activity",
+            "brainstorming_questions", "teaching_methodology", "guided_practice",
+            "independent_practice", "wrap_up", "resources", "assessment",
+            "weekly_plan", "vocabulary", "qa", "worksheets", "differentiation",
+            "cross_curricular", "values",
+        ],
     },
 }
 
@@ -1150,65 +1291,78 @@ async def generate_lesson_plan(params: dict, db: AsyncSession) -> dict:
             "teacher-supplied dates, holidays and exam fields below."
         )
 
-    instructions = f"""Create {type_desc} for {school}.
+    instructions = f"""Prepare {type_desc} for {school}, in the exact style, structure and
+level of detail of an official Lahore School System (LSS), Pakistan lesson plan.
 
-You are an expert lesson-plan designer. Build a practical, teacher-friendly,
-classroom-ready plan that follows international best practice and stays aligned
-with the selected curriculum.
+You are an expert Curriculum Developer, Senior Academic Coordinator and Primary
+School Lesson-Planning Specialist. The output must be a COMPLETE, professional,
+print-ready lesson plan that looks exactly like a document prepared by an
+experienced Academic Coordinator. THIS IS NOT A SUMMARY.
+
+GENERAL STANDARDS (follow strictly):
+- Produce a highly detailed plan built from the book/curriculum content below.
+- Never generate short or generic content. Every section must contain meaningful,
+  rich educational content and be immediately usable by a teacher without editing.
+- Use simple, child-friendly English suitable for Primary students.
+- Where appropriate, align activities with Bloom's Taxonomy and 21st-century
+  learning skills.
+- Do NOT leave any section empty and do NOT use placeholders.
+
+FILL EVERY SECTION OF THE `submit_lesson_plan` TOOL WITH DEPTH:
+1.  Cover page — subject, class, book, edition, session, term, unit no., unit title, chapter/topic.
+2.  Learning outcomes — 6-10 measurable outcomes (each completes "Students will be able to …").
+3.  Starter activity — an engaging warm-up (questioning / observation / movement / real objects).
+4.  Brainstorming questions — thought-provoking oral questions that activate prior knowledge.
+5.  Teaching methodology — THE LARGEST SECTION. Break teaching into ordered stages and explain
+    every important concept step by step, weaving in demonstrations, discussion, picture
+    explanation, real-life examples, hands-on learning, pair/group work, inquiry, practical
+    activities, teacher questioning and difficult-vocabulary explanation. Do NOT keep it short.
+6.  Guided practice — teacher-guided activities done with the class.
+7.  Independent practice — notebook work and individual activities.
+8.  Wrap-up — revision questions, oral recap and a quick classroom review.
+9.  Resources required — textbook, flashcards, charts, real objects, whiteboard, multimedia, etc.
+10. Assessment — oral questioning, observation, notebook checking, worksheet, exit ticket, etc.
+11. Week-wise planning — a realistic, balanced Day｜Classwork｜Homework table (Day 1-4, Day 5 if needed).
+12. Vocabulary — 15-25 important words with simple meanings.
+13. Question / answers — 5-10 detailed questions with complete, age-appropriate answers.
+14. Worksheets — varied worksheet ideas (MCQs, fill in the blanks, match, true/false, label
+    diagrams, short answers, picture identification, sorting) with a few sample items each.
+15. Differentiated instruction — support for slow, average and high-achieving learners.
+16. Cross-curricular links — connections with English, Mathematics, Art, ICT, Social Studies and
+    Islamic Studies where relevant.
+17. Values & life skills — respect, responsibility, cleanliness, safety, teamwork, care, kindness.
 
 {schedule_block}
 
-SCHEDULING PRECEDENCE & CALENDAR RULES (apply strictly):
-- The uploaded Academic Calendar is the PRIMARY source for all scheduling
-  (session dates, teaching weeks, unit tests, mid-terms, finals, revision weeks,
-  sports week, PTMs, school events, public holidays, summer/winter vacations,
-  co-curricular activities).
-- Official Notices / Emergency Updates OVERRIDE the Academic Calendar for any
-  dates they affect (government/security/election/weather/health closures,
-  revised vacation or examination dates, board/PEIRA/FDE notifications). When a
-  notice conflicts with the calendar, follow the NOTICE.
-- If multiple calendars or notices are present, use the one marked
-  "LATEST / ACTIVE" (listed first) — it is the latest active version.
-- NEVER schedule instructional/new-topic lessons on holidays, vacations, or
-  closure days. If such a day falls inside the requested range, mark it clearly
-  as a non-teaching day (state the reason, e.g. "Public Holiday — no class") and
-  do not assign teaching content to it.
-- During Revision Weeks: generate revision-focused lessons that consolidate
-  earlier chapters; do NOT introduce new topics.
-- During Examination periods: prioritise assessments, practice papers, exam
-  preparation and review sessions instead of new content.
-- During Sports Week, PTM week, school events or other scheduled activities:
-  adjust the plan (lighter/no instructional load) to fit the activity.
-- The teacher-supplied holiday/exam/revision fields in REQUIREMENTS are
-  ADDITIONAL hints; if they conflict with an Official Notice, the notice wins.
-
-INTELLIGENT SCHEDULING RULES:
-- Distribute all chapters/topics evenly across the available TEACHING days only
-  (after removing holidays, vacations, exams and events identified above).
-- Keep a logical topic sequence and sensible difficulty progression.
-- Reserve time for revision before any exam.
-- Never overload a single period; keep each lesson realistic for its duration.
-- Suggest engaging activities, ICT integration, real-life examples and HOTS questions.
-- Recommend homework and a formative assessment for lessons where it fits.
-- Add differentiation for slow, average and advanced learners.
+CALENDAR-AWARE WEEK PLANNING:
+- Treat the uploaded Academic Calendar as the PRIMARY source of teaching days,
+  holidays, vacations, exams, revision weeks and events. Official Notices /
+  Emergency Updates OVERRIDE it for any dates they affect. If multiple are
+  present, follow the one marked "LATEST / ACTIVE".
+- Do NOT place new-topic teaching on a holiday/closure day. If such a day falls in
+  the week, mark it in the Week-wise plan as a non-teaching day with the reason
+  and add its date where a calendar is supplied.
+- The teacher-supplied holiday/exam/revision fields below are ADDITIONAL hints;
+  if they conflict with an Official Notice, the notice wins.
 
 REQUIREMENTS:
 {requirements or '- (Use sensible defaults where details are not provided.)'}
 
 When details are missing, fill them with sound pedagogical defaults rather than
-leaving fields blank. Produce a complete plan covering the whole period, then end
-the summary with accurate totals and the expected course-completion date.
+leaving fields blank. Base the content on the supplied chapter/topic and the
+curriculum content below where available.
 
-{("CURRICULUM CONTENT (align topics and objectives to this where relevant):" + chr(10) + kb_context) if kb_context else "(No curriculum content was found in the knowledge base; build the plan from the chapters/topics above.)"}
+{("CURRICULUM CONTENT (base the outcomes, methodology, vocabulary, Q&A and worksheets on this):" + chr(10) + kb_context) if kb_context else "(No curriculum content was found in the knowledge base; build the plan from the chapters/topics above.)"}
 
 Now call the `submit_lesson_plan` tool exactly once with the complete plan."""
 
     plan_system = [{
         "type": "text",
         "text": (
-            f"You are an expert AI lesson-plan generator for {school}. You design comprehensive, "
-            "curriculum-aligned, classroom-ready teaching schedules. Always finish by calling the "
-            "submit_lesson_plan tool with the complete structured plan."
+            f"You are an expert AI lesson-plan generator for {school}, writing to the official "
+            "Lahore School System (LSS) standard. You produce comprehensive, curriculum-aligned, "
+            "print-ready 17-section teaching documents — never summaries. Always finish by calling "
+            "the submit_lesson_plan tool with every section filled with rich, classroom-ready content."
         ),
         "cache_control": {"type": "ephemeral"},
     }]
@@ -1218,7 +1372,7 @@ Now call the `submit_lesson_plan` tool exactly once with the complete plan."""
 
     response = await get_async_client().messages.create(
         model=get_model(),
-        max_tokens=8192,
+        max_tokens=16000,
         system=plan_system,
         messages=[{"role": "user", "content": instructions}],
         tools=[plan_tool],

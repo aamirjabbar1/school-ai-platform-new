@@ -83,8 +83,264 @@ def _set_cell_text(cell, runs: list[tuple[str, str]], *, size: float = 7.5,
         para.add_run("")
 
 
+_LSS_COVER_LABELS = [
+    ("subject", "Subject"), ("class_name", "Class"), ("book_name", "Book Name"),
+    ("edition", "Edition"), ("academic_session", "Academic Session"), ("term", "Term"),
+    ("unit_number", "Unit Number"), ("unit_title", "Unit Title"), ("chapter_topic", "Chapter / Topic"),
+]
+
+_ACCENT = RGBColor(0x1E, 0x3A, 0x8A)
+
+
 def build_lesson_plan_docx(plan: dict) -> bytes:
+    """Render a lesson plan as a Word document.
+
+    New plans use the 17-section LSS document format; older saved plans that only
+    carry a `lessons[]` schedule fall back to the legacy landscape grid.
+    """
     plan_data = plan.get("plan_data") or {}
+    if _is_lss_plan(plan_data):
+        return _build_lss_plan_docx(plan, plan_data)
+    return _build_legacy_plan_docx(plan, plan_data)
+
+
+def _is_lss_plan(plan_data: dict) -> bool:
+    return any(plan_data.get(k) for k in ("learning_outcomes", "teaching_methodology", "weekly_plan"))
+
+
+def _meta_line(plan: dict) -> str:
+    bits = [plan.get("subject"), plan.get("class_name")]
+    if plan.get("section"):
+        bits.append(f"Section {plan['section']}")
+    if plan.get("board"):
+        bits.append(plan["board"])
+    ptype = (plan.get("plan_type") or "").replace("_", " ").title()
+    if ptype:
+        bits.append(f"{ptype} Plan")
+    if plan.get("academic_session"):
+        bits.append(f"Session {plan['academic_session']}")
+    return " • ".join(str(b) for b in bits if b)
+
+
+# ─── LSS 17-section document (portrait A4) ────────────────────────────────────
+
+def _lss_heading(doc, n: int, text: str) -> None:
+    h = doc.add_heading(f"{n}. {text}", level=1)
+    for run in h.runs:
+        run.font.color.rgb = _ACCENT
+
+
+def _lss_subhead(doc, text: str) -> None:
+    p = doc.add_paragraph()
+    r = p.add_run(text)
+    r.bold = True
+    r.font.size = Pt(10.5)
+    r.font.color.rgb = _ACCENT
+
+
+def _lss_paragraphs(doc, text) -> None:
+    if not text:
+        return
+    for para in str(text).split("\n"):
+        para = para.strip()
+        if para:
+            doc.add_paragraph(para)
+
+
+def _lss_bullets(doc, items, *, numbered: bool = False) -> None:
+    style = "List Number" if numbered else "List Bullet"
+    for item in items or []:
+        if item in (None, ""):
+            continue
+        try:
+            doc.add_paragraph(str(item), style=style)
+        except KeyError:  # style not present in template
+            doc.add_paragraph(("• " if not numbered else "") + str(item))
+
+
+def _lss_table(doc, headers: list, rows: list, widths=None) -> None:
+    table = doc.add_table(rows=1, cols=len(headers))
+    table.style = "Table Grid"
+    hdr = table.rows[0].cells
+    for i, h in enumerate(headers):
+        _shade_cell(hdr[i], _HEADER_BG)
+        _set_cell_text(hdr[i], [("", h)], size=10, white=True, bold_all=True)
+    for row in rows:
+        cells = table.add_row().cells
+        for i, val in enumerate(row):
+            _set_cell_text(cells[i], [("", val or "")], size=9.5)
+    if widths:
+        for row in table.rows:
+            for i, w in enumerate(widths):
+                row.cells[i].width = w
+
+
+def _lss_kv(doc, pairs: list) -> None:
+    table = doc.add_table(rows=0, cols=2)
+    table.style = "Table Grid"
+    for label, value in pairs:
+        c = table.add_row().cells
+        _shade_cell(c[0], "F3F4F6")
+        _set_cell_text(c[0], [("", label)], size=9.5, bold_all=True)
+        _set_cell_text(c[1], [("", value)], size=9.5)
+
+
+def _build_lss_plan_docx(plan: dict, plan_data: dict) -> bytes:
+    doc = Document()
+
+    # Portrait A4
+    section = doc.sections[0]
+    section.orientation = WD_ORIENT.PORTRAIT
+    section.page_width, section.page_height = Cm(21.0), Cm(29.7)
+    section.left_margin = section.right_margin = Cm(1.8)
+    section.top_margin = section.bottom_margin = Cm(1.6)
+
+    title = doc.add_heading(plan_data.get("title") or plan.get("title", "Lesson Plan"), level=0)
+    title.alignment = WD_TABLE_ALIGNMENT.CENTER
+    meta_para = doc.add_paragraph(_meta_line(plan))
+    meta_para.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for run in meta_para.runs:
+        run.font.size = Pt(10)
+        run.font.color.rgb = RGBColor(0x6B, 0x72, 0x80)
+
+    # 1. Cover Page
+    cover = plan_data.get("cover") or {}
+    cover_pairs = [(label, cover.get(key)) for key, label in _LSS_COVER_LABELS if cover.get(key)]
+    if cover_pairs:
+        _lss_heading(doc, 1, "Cover Page")
+        _lss_kv(doc, cover_pairs)
+
+    # 2. Students Learning Outcomes
+    outcomes = plan_data.get("learning_outcomes") or []
+    if outcomes:
+        _lss_heading(doc, 2, "Students Learning Outcomes")
+        p = doc.add_paragraph()
+        p.add_run("Students will be able to:").bold = True
+        _lss_bullets(doc, outcomes, numbered=True)
+
+    # 3. Starter Activity
+    if plan_data.get("starter_activity"):
+        _lss_heading(doc, 3, "Starter Activity")
+        _lss_paragraphs(doc, plan_data["starter_activity"])
+
+    # 4. Brainstorming Questions
+    if plan_data.get("brainstorming_questions"):
+        _lss_heading(doc, 4, "Brainstorming Questions")
+        _lss_bullets(doc, plan_data["brainstorming_questions"])
+
+    # 5. Teaching Methodology
+    for_meth = plan_data.get("teaching_methodology") or []
+    if for_meth:
+        _lss_heading(doc, 5, "Teaching Methodology")
+        for stage in for_meth:
+            if isinstance(stage, dict):
+                if stage.get("heading"):
+                    _lss_subhead(doc, stage["heading"])
+                _lss_paragraphs(doc, stage.get("detail"))
+            else:
+                _lss_paragraphs(doc, stage)
+
+    # 6. Guided Practice
+    if plan_data.get("guided_practice"):
+        _lss_heading(doc, 6, "Guided Practice")
+        _lss_paragraphs(doc, plan_data["guided_practice"])
+
+    # 7. Independent Practice
+    if plan_data.get("independent_practice"):
+        _lss_heading(doc, 7, "Independent Practice")
+        _lss_paragraphs(doc, plan_data["independent_practice"])
+
+    # 8. Wrap-up
+    wrap = plan_data.get("wrap_up") or {}
+    if wrap:
+        _lss_heading(doc, 8, "Wrap-up")
+        if wrap.get("revision_questions"):
+            _lss_subhead(doc, "Revision Questions")
+            _lss_bullets(doc, wrap["revision_questions"])
+        if wrap.get("oral_recap"):
+            _lss_subhead(doc, "Oral Recap")
+            _lss_paragraphs(doc, wrap["oral_recap"])
+        if wrap.get("quick_review"):
+            _lss_subhead(doc, "Quick Classroom Review")
+            _lss_paragraphs(doc, wrap["quick_review"])
+
+    # 9. Resources Required
+    if plan_data.get("resources"):
+        _lss_heading(doc, 9, "Resources Required")
+        _lss_bullets(doc, plan_data["resources"])
+
+    # 10. Assessment
+    if plan_data.get("assessment"):
+        _lss_heading(doc, 10, "Assessment")
+        _lss_bullets(doc, plan_data["assessment"])
+
+    # 11. Week-wise Planning
+    weekly = plan_data.get("weekly_plan") or []
+    if weekly:
+        _lss_heading(doc, 11, "Week-wise Planning")
+        rows = [[d.get("day", ""), d.get("classwork", ""), d.get("homework", "")] for d in weekly]
+        _lss_table(doc, ["Day", "Classwork", "Homework"], rows,
+                   widths=[Cm(2.6), Cm(8.2), Cm(6.6)])
+
+    # 12. Vocabulary
+    vocab = plan_data.get("vocabulary") or []
+    if vocab:
+        _lss_heading(doc, 12, "Vocabulary")
+        rows = [[v.get("word", ""), v.get("meaning", "")] for v in vocab]
+        _lss_table(doc, ["Word", "Meaning"], rows, widths=[Cm(4.5), Cm(12.9)])
+
+    # 13. Question / Answers
+    qa = plan_data.get("qa") or []
+    if qa:
+        _lss_heading(doc, 13, "Question / Answers")
+        for i, item in enumerate(qa, start=1):
+            p = doc.add_paragraph()
+            p.add_run(f"Q{i}. {item.get('question', '')}").bold = True
+            a = doc.add_paragraph()
+            a.add_run("Ans. ").bold = True
+            a.add_run(item.get("answer", ""))
+
+    # 14. Worksheets
+    worksheets = plan_data.get("worksheets") or []
+    if worksheets:
+        _lss_heading(doc, 14, "Worksheets")
+        for ws in worksheets:
+            if isinstance(ws, dict):
+                if ws.get("type"):
+                    _lss_subhead(doc, ws["type"])
+                _lss_bullets(doc, ws.get("items") or [])
+            else:
+                _lss_bullets(doc, [ws])
+
+    # 15. Differentiated Instruction
+    diff = plan_data.get("differentiation") or {}
+    if diff:
+        _lss_heading(doc, 15, "Differentiated Instruction")
+        for key, label in (("slow_learners", "Slow Learners"), ("average_learners", "Average Learners"), ("high_achievers", "High Achievers")):
+            if diff.get(key):
+                _lss_subhead(doc, label)
+                _lss_paragraphs(doc, diff[key])
+
+    # 16. Cross-Curricular Links
+    cross = plan_data.get("cross_curricular") or []
+    rows = [[c.get("subject", ""), c.get("connection", "")] for c in cross if isinstance(c, dict)]
+    if rows:
+        _lss_heading(doc, 16, "Cross-Curricular Links")
+        _lss_table(doc, ["Subject", "Connection"], rows, widths=[Cm(4.0), Cm(13.4)])
+
+    # 17. Values & Life Skills
+    if plan_data.get("values"):
+        _lss_heading(doc, 17, "Values & Life Skills")
+        _lss_bullets(doc, plan_data["values"])
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+# ─── Legacy schedule grid (landscape A4) ──────────────────────────────────────
+
+def _build_legacy_plan_docx(plan: dict, plan_data: dict) -> bytes:
     lessons = plan_data.get("lessons") or []
     summary = plan_data.get("summary") or {}
 
@@ -101,17 +357,7 @@ def build_lesson_plan_docx(plan: dict) -> bytes:
     title = doc.add_heading(plan.get("title", "Lesson Plan"), level=0)
     title.alignment = WD_TABLE_ALIGNMENT.CENTER
 
-    meta_bits = [plan.get("subject"), plan.get("class_name")]
-    if plan.get("section"):
-        meta_bits.append(f"Section {plan['section']}")
-    if plan.get("board"):
-        meta_bits.append(plan["board"])
-    ptype = (plan.get("plan_type") or "").replace("_", " ").title()
-    if ptype:
-        meta_bits.append(f"{ptype} Plan")
-    if plan.get("academic_session"):
-        meta_bits.append(f"Session {plan['academic_session']}")
-    meta_para = doc.add_paragraph(" • ".join(str(b) for b in meta_bits if b))
+    meta_para = doc.add_paragraph(_meta_line(plan))
     meta_para.alignment = WD_TABLE_ALIGNMENT.CENTER
     for run in meta_para.runs:
         run.font.size = Pt(10)

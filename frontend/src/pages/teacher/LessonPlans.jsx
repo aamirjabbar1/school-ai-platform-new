@@ -50,6 +50,27 @@ const EMPTY_FORM = {
 
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
+// New plans are the 17-section LSS document; older saved plans only carry a
+// `lessons[]` schedule and render with the legacy grid.
+const isLssPlan = (pd) => !!(pd && (pd.learning_outcomes || pd.teaching_methodology || pd.weekly_plan));
+
+const planCardMeta = (pd) => {
+  if (!pd) return '';
+  if (isLssPlan(pd)) return pd.cover?.chapter_topic || 'LSS lesson plan';
+  const n = pd.lessons?.length || 0;
+  return n > 0 ? `${n} lessons` : '';
+};
+
+const LSS_COVER_LABELS = [
+  ['subject', 'Subject'], ['class_name', 'Class'], ['book_name', 'Book Name'], ['edition', 'Edition'],
+  ['academic_session', 'Academic Session'], ['term', 'Term'], ['unit_number', 'Unit Number'],
+  ['unit_title', 'Unit Title'], ['chapter_topic', 'Chapter / Topic'],
+];
+const LSS_DIFF_LABELS = [
+  ['slow_learners', 'Slow Learners'], ['average_learners', 'Average Learners'], ['high_achievers', 'High Achievers'],
+];
+const toParas = (text) => String(text ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
+
 export default function LessonPlans() {
   const { user } = useAuth();
   const subjectOptions = subjectsFor(user);
@@ -187,7 +208,7 @@ export default function LessonPlans() {
       ) : (
         <div className="grid gap-3">
           {plans.map((p) => {
-            const lessonCount = p.plan_data?.lessons?.length || 0;
+            const cardMeta = planCardMeta(p.plan_data);
             return (
               <div key={p.id} className="card hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between gap-3">
@@ -199,7 +220,7 @@ export default function LessonPlans() {
                     </div>
                     <p className="text-xs text-muted mt-1">
                       {p.subject} • {p.class_name}{p.section ? ` - ${p.section}` : ''}
-                      {p.board ? ` • ${p.board}` : ''}{lessonCount > 0 ? ` • ${lessonCount} lessons` : ''}
+                      {p.board ? ` • ${p.board}` : ''}{cardMeta ? ` • ${cardMeta}` : ''}
                     </p>
                     <p className="text-xs text-faint">{new Date(p.created_at).toLocaleDateString()}</p>
                   </div>
@@ -357,22 +378,21 @@ function GeneratorModal({ form, set, user, subjectOptions, classOptions, generat
 // ─── View modal ───────────────────────────────────────────────────────────────
 
 function ViewModal({ plan, onClose, onPdf, onDocx, onPrint }) {
-  const lessons = plan.plan_data?.lessons || [];
-  const summary = plan.plan_data?.summary || {};
-  const overview = plan.plan_data?.overview;
-  const cell = (ls, fields) => fields
-    .filter(([k]) => ls[k])
-    .map(([k, label]) => <div key={k} className="mb-0.5"><span className="font-semibold">{label}:</span> {ls[k]}</div>);
+  const pd = plan.plan_data || {};
+  const lss = isLssPlan(pd);
+  const subtitle = lss
+    ? (pd.cover?.chapter_topic || '17-section lesson plan')
+    : `${pd.lessons?.length || 0} lessons`;
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-start justify-center p-4 overflow-y-auto">
-      <div className="bg-surface rounded-2xl shadow-xl w-full max-w-6xl my-4">
+      <div className={`bg-surface rounded-2xl shadow-xl w-full ${lss ? 'max-w-4xl' : 'max-w-6xl'} my-4`}>
         <div className="p-5 border-b flex items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="font-bold text-ink truncate">{plan.title}</h2>
             <p className="text-sm text-muted">
               {plan.subject} • {plan.class_name}{plan.section ? ` - ${plan.section}` : ''}
-              {plan.board ? ` • ${plan.board}` : ''} • {lessons.length} lessons
+              {plan.board ? ` • ${plan.board}` : ''} • {subtitle}
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -382,53 +402,248 @@ function ViewModal({ plan, onClose, onPdf, onDocx, onPrint }) {
             <button onClick={onClose} className="text-faint hover:text-muted"><X size={20} /></button>
           </div>
         </div>
-        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
-          {overview && <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">{overview}</div>}
-
-          {lessons.length === 0 ? (
-            <p className="text-muted text-center py-4">No lessons in this plan.</p>
-          ) : (
-            <div className="overflow-x-auto border border-line rounded-lg">
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-800 text-white">
-                    <th className="p-2 text-left font-semibold min-w-[90px]">Wk / Date</th>
-                    {CELL_GROUPS.map((g) => <th key={g.header} className="p-2 text-left font-semibold min-w-[160px]">{g.header}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {lessons.map((ls, i) => (
-                    <tr key={i} className={i % 2 ? 'bg-surface-2' : ''}>
-                      <td className="p-2 align-top border-t border-line font-semibold whitespace-nowrap">
-                        {ls.week != null && <div>Week {ls.week}</div>}
-                        {ls.dates && <div className="font-normal text-muted">{ls.dates}</div>}
-                        {ls.day && <div className="font-normal text-muted">{ls.day}</div>}
-                        {ls.period && <div className="font-normal text-muted">P{ls.period}</div>}
-                      </td>
-                      {CELL_GROUPS.map((g) => <td key={g.header} className="p-2 align-top border-t border-line text-muted">{cell(ls, g.fields)}</td>)}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {Object.keys(summary).length > 0 && (
-            <div>
-              <h3 className="font-semibold text-ink mb-2">Plan Summary</h3>
-              <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-                {SUMMARY_LABELS.filter(([k]) => summary[k] != null && summary[k] !== '').map(([k, label]) => (
-                  <div key={k} className="flex gap-2 border-b border-line/60 py-1">
-                    <span className="font-medium text-ink/80 min-w-[170px]">{label}</span>
-                    <span className="text-muted">{summary[k]}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="p-5 space-y-3 max-h-[75vh] overflow-y-auto">
+          {lss ? <LssPlanView pd={pd} /> : <LegacyPlanBody pd={pd} />}
         </div>
       </div>
     </div>
+  );
+}
+
+// ─── LSS 17-section document view ─────────────────────────────────────────────
+
+function SecHead({ n, title }) {
+  return (
+    <h3 className="mt-4 mb-2 px-3 py-1.5 rounded-md bg-slate-800 text-white text-sm font-semibold">
+      {n}. {title}
+    </h3>
+  );
+}
+
+function SubHead({ children }) {
+  return <p className="mt-2 mb-1 text-sm font-semibold text-blue-800">{children}</p>;
+}
+
+function Paras({ text }) {
+  return toParas(text).map((s, i) => <p key={i} className="text-sm text-muted mb-1.5 leading-relaxed">{s}</p>);
+}
+
+function Bullets({ items, numbered }) {
+  const list = (items || []).filter(Boolean);
+  if (list.length === 0) return null;
+  const Tag = numbered ? 'ol' : 'ul';
+  return (
+    <Tag className={`${numbered ? 'list-decimal' : 'list-disc'} pl-6 space-y-1 text-sm text-muted`}>
+      {list.map((it, i) => <li key={i} className="leading-relaxed">{it}</li>)}
+    </Tag>
+  );
+}
+
+function DocTable({ headers, rows, widths }) {
+  return (
+    <div className="overflow-x-auto border border-line rounded-lg">
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="bg-slate-800 text-white">
+            {headers.map((h, i) => (
+              <th key={h} className="p-2 text-left font-semibold" style={widths ? { width: widths[i] } : undefined}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className={i % 2 ? 'bg-surface-2' : ''}>
+              {r.map((c, j) => <td key={j} className="p-2 align-top border-t border-line text-muted">{c}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LssPlanView({ pd }) {
+  const cover = pd.cover || {};
+  const wrap = pd.wrap_up || {};
+  const diff = pd.differentiation || {};
+  const coverRows = LSS_COVER_LABELS.filter(([k]) => cover[k]);
+
+  return (
+    <div>
+      {coverRows.length > 0 && (
+        <>
+          <SecHead n={1} title="Cover Page" />
+          <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+            {coverRows.map(([k, label]) => (
+              <div key={k} className="flex gap-2 border-b border-line/60 py-1">
+                <span className="font-medium text-ink/80 min-w-[130px]">{label}</span>
+                <span className="text-muted">{cover[k]}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {pd.learning_outcomes?.length > 0 && (
+        <>
+          <SecHead n={2} title="Students Learning Outcomes" />
+          <p className="text-sm font-medium text-ink/90 mb-1">Students will be able to:</p>
+          <Bullets items={pd.learning_outcomes} numbered />
+        </>
+      )}
+
+      {pd.starter_activity && (<><SecHead n={3} title="Starter Activity" /><Paras text={pd.starter_activity} /></>)}
+
+      {pd.brainstorming_questions?.length > 0 && (
+        <><SecHead n={4} title="Brainstorming Questions" /><Bullets items={pd.brainstorming_questions} /></>
+      )}
+
+      {pd.teaching_methodology?.length > 0 && (
+        <>
+          <SecHead n={5} title="Teaching Methodology" />
+          {pd.teaching_methodology.map((s, i) => (
+            <div key={i}>
+              {s?.heading && <SubHead>{s.heading}</SubHead>}
+              <Paras text={s?.detail ?? s} />
+            </div>
+          ))}
+        </>
+      )}
+
+      {pd.guided_practice && (<><SecHead n={6} title="Guided Practice" /><Paras text={pd.guided_practice} /></>)}
+      {pd.independent_practice && (<><SecHead n={7} title="Independent Practice" /><Paras text={pd.independent_practice} /></>)}
+
+      {(wrap.revision_questions?.length > 0 || wrap.oral_recap || wrap.quick_review) && (
+        <>
+          <SecHead n={8} title="Wrap-up" />
+          {wrap.revision_questions?.length > 0 && (<><SubHead>Revision Questions</SubHead><Bullets items={wrap.revision_questions} /></>)}
+          {wrap.oral_recap && (<><SubHead>Oral Recap</SubHead><Paras text={wrap.oral_recap} /></>)}
+          {wrap.quick_review && (<><SubHead>Quick Classroom Review</SubHead><Paras text={wrap.quick_review} /></>)}
+        </>
+      )}
+
+      {pd.resources?.length > 0 && (<><SecHead n={9} title="Resources Required" /><Bullets items={pd.resources} /></>)}
+      {pd.assessment?.length > 0 && (<><SecHead n={10} title="Assessment" /><Bullets items={pd.assessment} /></>)}
+
+      {pd.weekly_plan?.length > 0 && (
+        <>
+          <SecHead n={11} title="Week-wise Planning" />
+          <DocTable
+            headers={['Day', 'Classwork', 'Homework']}
+            widths={['15%', '48%', '37%']}
+            rows={pd.weekly_plan.map((d) => [d.day, d.classwork, d.homework])}
+          />
+        </>
+      )}
+
+      {pd.vocabulary?.length > 0 && (
+        <>
+          <SecHead n={12} title="Vocabulary" />
+          <DocTable headers={['Word', 'Meaning']} widths={['28%', '72%']} rows={pd.vocabulary.map((v) => [v.word, v.meaning])} />
+        </>
+      )}
+
+      {pd.qa?.length > 0 && (
+        <>
+          <SecHead n={13} title="Question / Answers" />
+          {pd.qa.map((q, i) => (
+            <div key={i} className="mb-2">
+              <p className="text-sm font-semibold text-ink/90">Q{i + 1}. {q.question}</p>
+              <p className="text-sm text-muted leading-relaxed"><span className="font-semibold">Ans.</span> {q.answer}</p>
+            </div>
+          ))}
+        </>
+      )}
+
+      {pd.worksheets?.length > 0 && (
+        <>
+          <SecHead n={14} title="Worksheets" />
+          {pd.worksheets.map((ws, i) => (
+            <div key={i}>
+              {ws?.type && <SubHead>{ws.type}</SubHead>}
+              <Bullets items={ws?.items || (typeof ws === 'string' ? [ws] : [])} />
+            </div>
+          ))}
+        </>
+      )}
+
+      {(diff.slow_learners || diff.average_learners || diff.high_achievers) && (
+        <>
+          <SecHead n={15} title="Differentiated Instruction" />
+          {LSS_DIFF_LABELS.filter(([k]) => diff[k]).map(([k, label]) => (
+            <div key={k}><SubHead>{label}</SubHead><Paras text={diff[k]} /></div>
+          ))}
+        </>
+      )}
+
+      {pd.cross_curricular?.length > 0 && (
+        <>
+          <SecHead n={16} title="Cross-Curricular Links" />
+          <DocTable headers={['Subject', 'Connection']} widths={['26%', '74%']} rows={pd.cross_curricular.map((c) => [c.subject, c.connection])} />
+        </>
+      )}
+
+      {pd.values?.length > 0 && (<><SecHead n={17} title="Values & Life Skills" /><Bullets items={pd.values} /></>)}
+    </div>
+  );
+}
+
+// ─── Legacy schedule grid view ────────────────────────────────────────────────
+
+function LegacyPlanBody({ pd }) {
+  const lessons = pd.lessons || [];
+  const summary = pd.summary || {};
+  const overview = pd.overview;
+  const cell = (ls, fields) => fields
+    .filter(([k]) => ls[k])
+    .map(([k, label]) => <div key={k} className="mb-0.5"><span className="font-semibold">{label}:</span> {ls[k]}</div>);
+
+  return (
+    <>
+      {overview && <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">{overview}</div>}
+
+      {lessons.length === 0 ? (
+        <p className="text-muted text-center py-4">No lessons in this plan.</p>
+      ) : (
+        <div className="overflow-x-auto border border-line rounded-lg">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-800 text-white">
+                <th className="p-2 text-left font-semibold min-w-[90px]">Wk / Date</th>
+                {CELL_GROUPS.map((g) => <th key={g.header} className="p-2 text-left font-semibold min-w-[160px]">{g.header}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {lessons.map((ls, i) => (
+                <tr key={i} className={i % 2 ? 'bg-surface-2' : ''}>
+                  <td className="p-2 align-top border-t border-line font-semibold whitespace-nowrap">
+                    {ls.week != null && <div>Week {ls.week}</div>}
+                    {ls.dates && <div className="font-normal text-muted">{ls.dates}</div>}
+                    {ls.day && <div className="font-normal text-muted">{ls.day}</div>}
+                    {ls.period && <div className="font-normal text-muted">P{ls.period}</div>}
+                  </td>
+                  {CELL_GROUPS.map((g) => <td key={g.header} className="p-2 align-top border-t border-line text-muted">{cell(ls, g.fields)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {Object.keys(summary).length > 0 && (
+        <div>
+          <h3 className="font-semibold text-ink mb-2">Plan Summary</h3>
+          <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+            {SUMMARY_LABELS.filter(([k]) => summary[k] != null && summary[k] !== '').map(([k, label]) => (
+              <div key={k} className="flex gap-2 border-b border-line/60 py-1">
+                <span className="font-medium text-ink/80 min-w-[170px]">{label}</span>
+                <span className="text-muted">{summary[k]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -455,6 +670,103 @@ function Field({ label, children }) {
 // ─── Print document (standalone window) ───────────────────────────────────────
 
 function buildPrintHtml(plan) {
+  return isLssPlan(plan.plan_data || {}) ? buildLssPrintHtml(plan) : buildLegacyPrintHtml(plan);
+}
+
+function buildLssPrintHtml(plan) {
+  const pd = plan.plan_data || {};
+  const cover = pd.cover || {};
+  const wrap = pd.wrap_up || {};
+  const diff = pd.differentiation || {};
+  const metaBits = [plan.subject, plan.class_name, plan.section && `Section ${plan.section}`, plan.board,
+    plan.plan_type && `${plan.plan_type.replace('_', ' ')} plan`]
+    .filter(Boolean).map(esc).join(' • ');
+
+  const sec = (n, title) => `<h2 class="sec">${n}. ${esc(title)}</h2>`;
+  const paras = (t) => toParas(t).map((s) => `<p>${esc(s)}</p>`).join('');
+  const list = (items, ordered) => {
+    const li = (items || []).filter(Boolean).map((it) => `<li>${esc(it)}</li>`).join('');
+    return li ? `<${ordered ? 'ol' : 'ul'}>${li}</${ordered ? 'ol' : 'ul'}>` : '';
+  };
+  const table = (headers, rows, widths) => {
+    const head = headers.map((h, i) => `<th${widths ? ` style="width:${widths[i]}"` : ''}>${esc(h)}</th>`).join('');
+    const body = rows.map((r) => `<tr>${r.map((c) => `<td>${esc(c)}</td>`).join('')}</tr>`).join('');
+    return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  };
+
+  const parts = [];
+  const coverRows = LSS_COVER_LABELS.filter(([k]) => cover[k]);
+  if (coverRows.length) {
+    const body = coverRows.map(([k, label]) => `<tr><th class="kv">${esc(label)}</th><td>${esc(cover[k])}</td></tr>`).join('');
+    parts.push(sec(1, 'Cover Page'), `<table class="kv"><tbody>${body}</tbody></table>`);
+  }
+  if (pd.learning_outcomes?.length) { parts.push(sec(2, 'Students Learning Outcomes'), '<p><strong>Students will be able to:</strong></p>', list(pd.learning_outcomes, true)); }
+  if (pd.starter_activity) parts.push(sec(3, 'Starter Activity'), paras(pd.starter_activity));
+  if (pd.brainstorming_questions?.length) parts.push(sec(4, 'Brainstorming Questions'), list(pd.brainstorming_questions));
+  if (pd.teaching_methodology?.length) {
+    parts.push(sec(5, 'Teaching Methodology'));
+    pd.teaching_methodology.forEach((s) => {
+      if (s?.heading) parts.push(`<h3 class="sub">${esc(s.heading)}</h3>`);
+      parts.push(paras(s?.detail ?? s));
+    });
+  }
+  if (pd.guided_practice) parts.push(sec(6, 'Guided Practice'), paras(pd.guided_practice));
+  if (pd.independent_practice) parts.push(sec(7, 'Independent Practice'), paras(pd.independent_practice));
+  if (wrap.revision_questions?.length || wrap.oral_recap || wrap.quick_review) {
+    parts.push(sec(8, 'Wrap-up'));
+    if (wrap.revision_questions?.length) parts.push('<h3 class="sub">Revision Questions</h3>', list(wrap.revision_questions));
+    if (wrap.oral_recap) parts.push('<h3 class="sub">Oral Recap</h3>', paras(wrap.oral_recap));
+    if (wrap.quick_review) parts.push('<h3 class="sub">Quick Classroom Review</h3>', paras(wrap.quick_review));
+  }
+  if (pd.resources?.length) parts.push(sec(9, 'Resources Required'), list(pd.resources));
+  if (pd.assessment?.length) parts.push(sec(10, 'Assessment'), list(pd.assessment));
+  if (pd.weekly_plan?.length) parts.push(sec(11, 'Week-wise Planning'), table(['Day', 'Classwork', 'Homework'], pd.weekly_plan.map((d) => [d.day, d.classwork, d.homework]), ['15%', '48%', '37%']));
+  if (pd.vocabulary?.length) parts.push(sec(12, 'Vocabulary'), table(['Word', 'Meaning'], pd.vocabulary.map((v) => [v.word, v.meaning]), ['28%', '72%']));
+  if (pd.qa?.length) {
+    parts.push(sec(13, 'Question / Answers'));
+    pd.qa.forEach((q, i) => parts.push(`<p class="q"><strong>Q${i + 1}. ${esc(q.question)}</strong></p><p class="a"><strong>Ans.</strong> ${esc(q.answer)}</p>`));
+  }
+  if (pd.worksheets?.length) {
+    parts.push(sec(14, 'Worksheets'));
+    pd.worksheets.forEach((ws) => {
+      if (ws?.type) parts.push(`<h3 class="sub">${esc(ws.type)}</h3>`);
+      parts.push(list(ws?.items || (typeof ws === 'string' ? [ws] : [])));
+    });
+  }
+  if (diff.slow_learners || diff.average_learners || diff.high_achievers) {
+    parts.push(sec(15, 'Differentiated Instruction'));
+    LSS_DIFF_LABELS.filter(([k]) => diff[k]).forEach(([k, label]) => parts.push(`<h3 class="sub">${esc(label)}</h3>`, paras(diff[k])));
+  }
+  if (pd.cross_curricular?.length) parts.push(sec(16, 'Cross-Curricular Links'), table(['Subject', 'Connection'], pd.cross_curricular.map((c) => [c.subject, c.connection]), ['26%', '74%']));
+  if (pd.values?.length) parts.push(sec(17, 'Values & Life Skills'), list(pd.values));
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(plan.title)}</title>
+<style>
+  @page { size: A4 portrait; margin: 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, Helvetica, sans-serif; color: #111827; margin: 0; font-size: 12px; line-height: 1.5; }
+  h1 { font-size: 20px; margin: 0 0 2px; text-align: center; }
+  .meta { text-align: center; color: #6b7280; font-size: 11px; margin-bottom: 14px; }
+  h2.sec { background: #1e3a8a; color: #fff; font-size: 13px; padding: 5px 8px; border-radius: 3px; margin: 16px 0 8px; page-break-after: avoid; }
+  h3.sub { color: #1e3a8a; font-size: 12px; margin: 8px 0 3px; page-break-after: avoid; }
+  p { margin: 0 0 6px; }
+  p.a { margin-bottom: 10px; }
+  ul, ol { margin: 0 0 8px; padding-left: 22px; }
+  li { margin-bottom: 3px; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 10px; }
+  th, td { border: 0.5px solid #d1d5db; padding: 5px 7px; font-size: 11px; text-align: left; vertical-align: top; }
+  thead th { background: #1e3a8a; color: #fff; }
+  tbody tr:nth-child(even) { background: #f8fafc; }
+  table.kv tbody tr:nth-child(even) { background: transparent; }
+  th.kv { background: #f3f4f6; color: #111827; width: 180px; }
+</style></head><body>
+  <h1>${esc(pd.title || plan.title)}</h1>
+  <div class="meta">${metaBits}</div>
+  ${parts.join('\n')}
+</body></html>`;
+}
+
+function buildLegacyPrintHtml(plan) {
   const lessons = plan.plan_data?.lessons || [];
   const summary = plan.plan_data?.summary || {};
   const overview = plan.plan_data?.overview || '';
