@@ -7,7 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.database import get_db
 from middleware.auth import get_current_user, require_roles
 from models.models import User, LessonPlan
+from services import audit_service
 from services.ai_service import generate_lesson_plan
+from services.lesson_plan_store import publish_plan_safely
 from services.pdf_service import build_lesson_plan_pdf
 from services.docx_service import build_lesson_plan_docx
 
@@ -82,7 +84,7 @@ async def get_lesson_plans(
     user: User = Depends(require_roles("teacher", "admin")),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(LessonPlan)
+    query = select(LessonPlan).where(LessonPlan.is_archived.is_(False))
     if user.role == "teacher":
         query = query.where(LessonPlan.teacher_id == user.id)
     if subject:
@@ -155,10 +157,25 @@ async def generate_plan(
         plan_data=plan_data, inputs=body.model_dump(), is_published=False,
     )
     db.add(plan)
+    await db.flush()
+    audit_service.record_change(
+        db, plan, content_type=audit_service.LESSON_PLAN,
+        action="created", actor=user, ai_inputs=body.model_dump(),
+    )
     await db.commit()
     await db.refresh(plan)
 
-    return {"plan": plan.to_dict(), "sources_used": result["sources"]}
+    # File the plan in the Knowledge Base straight away, so it is available for
+    # curriculum validation and coverage checks without anyone uploading it.
+    document_id = await publish_plan_safely(db, plan, uploaded_by=user.id)
+    await db.refresh(plan)
+
+    return {
+        "plan": plan.to_dict(),
+        "sources_used": result["sources"],
+        "knowledge_base_document_id": document_id,
+        "saved_to_knowledge_base": document_id is not None,
+    }
 
 
 @router.post("")
@@ -175,6 +192,10 @@ async def create_plan(
         end_date=body.end_date, plan_data=body.plan_data, inputs=body.inputs,
     )
     db.add(plan)
+    await db.flush()
+    audit_service.record_change(
+        db, plan, content_type=audit_service.LESSON_PLAN, action="created", actor=user,
+    )
     await db.commit()
     await db.refresh(plan)
     return plan.to_dict()
@@ -192,6 +213,9 @@ async def update_plan(
         plan.title = body.title
     if body.plan_data is not None:
         plan.plan_data = body.plan_data
+    audit_service.record_change(
+        db, plan, content_type=audit_service.LESSON_PLAN, action="updated", actor=user,
+    )
     await db.commit()
     await db.refresh(plan)
     return plan.to_dict()
@@ -205,6 +229,10 @@ async def publish_plan(
 ):
     plan = await _get_owned_plan(plan_id, user, db)
     plan.is_published = not plan.is_published
+    audit_service.record_event(
+        db, plan, content_type=audit_service.LESSON_PLAN,
+        action="published" if plan.is_published else "unpublished", actor=user,
+    )
     await db.commit()
     return {"message": f"Plan {'published' if plan.is_published else 'unpublished'}", "plan": plan.to_dict()}
 
@@ -224,6 +252,11 @@ async def duplicate_plan(
         plan_data=src.plan_data, inputs=src.inputs, is_published=False,
     )
     db.add(copy)
+    await db.flush()
+    audit_service.record_change(
+        db, copy, content_type=audit_service.LESSON_PLAN, action="created",
+        actor=user, note=f"Duplicated from {src.title}",
+    )
     await db.commit()
     await db.refresh(copy)
     return copy.to_dict()

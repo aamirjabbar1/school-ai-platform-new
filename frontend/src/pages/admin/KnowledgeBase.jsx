@@ -4,6 +4,7 @@ import { documentAPI } from '../../services/api';
 import {
   Upload, Database, Trash2, RefreshCw, CheckCircle, AlertCircle, Loader2, X,
   FileText, BookOpen, Filter, ScrollText, ChevronRight, CalendarDays, Megaphone,
+  ClipboardList,
 } from 'lucide-react';
 import { KB_SUBJECTS as SUBJECTS, CLASS_LEVELS } from '../../constants/academics';
 const LANGUAGES = ['English', 'Urdu', 'Bilingual'];
@@ -29,6 +30,7 @@ const STAT_STYLES = {
   orange:  { wrap: 'bg-orange-100',  icon: 'text-orange-600' },
   emerald: { wrap: 'bg-emerald-100', icon: 'text-emerald-600' },
   rose:    { wrap: 'bg-rose-100',    icon: 'text-rose-600' },
+  sky:     { wrap: 'bg-sky-100',     icon: 'text-sky-600' },
 };
 
 // Per-document-type display metadata for the list (literal Tailwind classes).
@@ -36,6 +38,7 @@ const DOC_TYPE_META = {
   exam:              { label: 'Question Paper',     Icon: ScrollText,   wrap: 'bg-purple-100 text-purple-600',   badge: 'badge-purple' },
   academic_calendar: { label: 'Academic Calendar',  Icon: CalendarDays, wrap: 'bg-emerald-100 text-emerald-600', badge: 'badge-green' },
   official_notice:   { label: 'Official Notice',    Icon: Megaphone,    wrap: 'bg-rose-100 text-rose-600',       badge: 'badge-red' },
+  lesson_plan:       { label: 'Lesson Plan',        Icon: ClipboardList, wrap: 'bg-sky-100 text-sky-600',        badge: 'badge-blue' },
   book:              { label: 'Book / Material',    Icon: BookOpen,     wrap: 'bg-green-100 text-green-600',      badge: 'badge-gray' },
 };
 
@@ -294,6 +297,7 @@ export default function KnowledgeBase() {
             { label: 'Question Papers', value: stats.question_papers ?? 0, icon: ScrollText, color: 'purple' },
             { label: 'Academic Calendar', value: stats.academic_calendars ?? 0, icon: CalendarDays, color: 'emerald' },
             { label: 'Official Notices', value: stats.official_notices ?? 0, icon: Megaphone, color: 'rose' },
+            { label: 'Lesson Plans', value: stats.lesson_plans ?? 0, icon: ClipboardList, color: 'sky' },
             { label: 'AI Chunks', value: parseInt(stats.total_chunks || 0).toLocaleString(), icon: Database, color: 'green' },
             { label: 'Subjects', value: stats.subjects_covered, icon: Filter, color: 'orange' },
           ].map(({ label, value, icon: Icon, color }) => (
@@ -316,6 +320,7 @@ export default function KnowledgeBase() {
           <option value="exam">Question Papers</option>
           <option value="academic_calendar">Academic Calendar</option>
           <option value="official_notice">Official Notices</option>
+          <option value="lesson_plan">Lesson Plans</option>
         </select>
         <select value={filterSubject} onChange={(e) => setFilterSubject(e.target.value)} className="input-field w-auto">
           <option value="">All Subjects</option>

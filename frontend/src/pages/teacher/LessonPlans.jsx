@@ -71,6 +71,14 @@ const LSS_DIFF_LABELS = [
 ];
 const toParas = (text) => String(text ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
 
+
+// Admin review state, shown read-only so teachers can see and act on feedback.
+const REVIEW_BADGE = {
+  pending:  { cls: 'badge-yellow', label: 'Awaiting review' },
+  approved: { cls: 'badge-green',  label: 'Approved' },
+  rejected: { cls: 'badge-red',    label: 'Changes requested' },
+};
+
 export default function LessonPlans() {
   const { user } = useAuth();
   const subjectOptions = subjectsFor(user);
@@ -216,6 +224,12 @@ export default function LessonPlans() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-semibold text-ink text-sm">{p.title}</h3>
                       <span className={p.is_published ? 'badge-green' : 'badge-gray'}>{p.is_published ? 'Published' : 'Draft'}</span>
+                      {p.review_status && p.review_status !== 'approved' && (
+                        <span className={(REVIEW_BADGE[p.review_status] || REVIEW_BADGE.pending).cls}>
+                          {(REVIEW_BADGE[p.review_status] || REVIEW_BADGE.pending).label}
+                        </span>
+                      )}
+                      {p.review_status === 'approved' && <span className="badge-green">Approved</span>}
                       <span className="badge-blue capitalize">{p.plan_type?.replace('_', ' ')}</span>
                     </div>
                     <p className="text-xs text-muted mt-1">
@@ -223,6 +237,11 @@ export default function LessonPlans() {
                       {p.board ? ` • ${p.board}` : ''}{cardMeta ? ` • ${cardMeta}` : ''}
                     </p>
                     <p className="text-xs text-faint">{new Date(p.created_at).toLocaleDateString()}</p>
+                    {p.review_status === 'rejected' && p.review_note && (
+                      <p className="text-xs text-red-600 mt-1">
+                        <span className="font-medium">Admin feedback:</span> {p.review_note}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <button onClick={() => setViewPlan(p)} className="p-1.5 rounded-lg hover:bg-surface-3 text-muted hover:text-blue-600" title="View plan"><Eye size={16} /></button>

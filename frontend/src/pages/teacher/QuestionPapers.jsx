@@ -24,6 +24,14 @@ const EMPTY_GEN_FORM = {
   difficulty_distribution: { easy: 30, medium: 50, hard: 20 },
 };
 
+
+// Admin review state, shown read-only so teachers can see and act on feedback.
+const REVIEW_BADGE = {
+  pending:  { cls: 'badge-yellow', label: 'Awaiting review' },
+  approved: { cls: 'badge-green',  label: 'Approved' },
+  rejected: { cls: 'badge-red',    label: 'Changes requested' },
+};
+
 export default function QuestionPapers() {
   const { user } = useAuth();
   // Dropdowns restricted to the teacher's assigned subjects/classes/sections.
@@ -143,9 +151,12 @@ export default function QuestionPapers() {
       </div>
 
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm">
-          <X size={16} /> {error}
-          <button onClick={() => setError('')} className="ml-auto"><X size={14} /></button>
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2 text-red-700 text-sm">
+          <X size={16} className="mt-0.5 shrink-0" />
+          {/* Grades 1-2 refusals explain exactly what is missing, over several
+              lines — keep the line breaks so the reason stays readable. */}
+          <span className="flex-1 whitespace-pre-line">{error}</span>
+          <button onClick={() => setError('')} className="shrink-0"><X size={14} /></button>
         </div>
       )}
 
@@ -170,6 +181,9 @@ export default function QuestionPapers() {
                     <span className={p.is_published ? 'badge-green' : 'badge-gray'}>
                       {p.is_published ? 'Published' : 'Draft'}
                     </span>
+                    <span className={(REVIEW_BADGE[p.review_status] || REVIEW_BADGE.pending).cls}>
+                      {(REVIEW_BADGE[p.review_status] || REVIEW_BADGE.pending).label}
+                    </span>
                     <span className="badge-blue capitalize">{p.paper_type?.replace('_', ' ')}</span>
                   </div>
                   <p className="text-xs text-muted mt-1">
@@ -177,6 +191,11 @@ export default function QuestionPapers() {
                     {p.questions?.length > 0 && ` • ${p.questions.length} questions`}
                   </p>
                   <p className="text-xs text-faint">{new Date(p.created_at).toLocaleDateString()}</p>
+                  {p.review_status === 'rejected' && p.review_note && (
+                    <p className="text-xs text-red-600 mt-1">
+                      <span className="font-medium">Admin feedback:</span> {p.review_note}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
                   <button

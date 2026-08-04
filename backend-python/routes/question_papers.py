@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.database import get_db
 from middleware.auth import get_current_user, require_roles
 from models.models import User, QuestionPaper
+from services import audit_service
 from services.exam_patterns import exam_title, paper_total_marks
 from services.ai_service import (
     generate_question_paper,
@@ -35,6 +36,7 @@ class GeneratePaperRequest(BaseModel):
     use_past_papers: bool = True
     # Date printed in the paper header; omitted = the day the paper is downloaded.
     exam_date: date | None = None
+    academic_session: str | None = None
 
 
 class PredictImportantRequest(BaseModel):
@@ -69,6 +71,7 @@ class CreatePaperRequest(BaseModel):
     duration_minutes: int = 60
     instructions: str | None = None
     exam_date: date | None = None
+    academic_session: str | None = None
 
 
 @router.get("")
@@ -79,7 +82,7 @@ async def get_question_papers(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(QuestionPaper)
+    query = select(QuestionPaper).where(QuestionPaper.is_archived.is_(False))
     if user.role == "teacher":
         query = query.where(QuestionPaper.teacher_id == user.id)
     if subject:
@@ -202,9 +205,16 @@ async def generate_paper(
         total_marks=actual_marks or body.total_marks,
         duration_minutes=body.duration_minutes,
         exam_date=body.exam_date,
+        academic_session=body.academic_session,
+        inputs=body.model_dump(mode="json"),
         is_published=False,
     )
     db.add(paper)
+    await db.flush()
+    audit_service.record_change(
+        db, paper, content_type=audit_service.QUESTION_PAPER,
+        action="created", actor=user, ai_inputs=body.model_dump(mode="json"),
+    )
     await db.commit()
     await db.refresh(paper)
 
@@ -286,8 +296,13 @@ async def create_paper(
         questions=body.questions, answer_key=body.answer_key,
         total_marks=body.total_marks, duration_minutes=body.duration_minutes,
         instructions=body.instructions, exam_date=body.exam_date,
+        academic_session=body.academic_session,
     )
     db.add(paper)
+    await db.flush()
+    audit_service.record_change(
+        db, paper, content_type=audit_service.QUESTION_PAPER, action="created", actor=user,
+    )
     await db.commit()
     await db.refresh(paper)
     return paper.to_dict()
@@ -307,6 +322,10 @@ async def publish_paper(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     paper.is_published = not paper.is_published
+    audit_service.record_event(
+        db, paper, content_type=audit_service.QUESTION_PAPER,
+        action="published" if paper.is_published else "unpublished", actor=user,
+    )
     await db.commit()
     return {"message": f"Paper {'published' if paper.is_published else 'unpublished'}", "paper": paper.to_dict()}
 

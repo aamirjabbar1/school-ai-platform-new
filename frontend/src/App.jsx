@@ -20,6 +20,7 @@ import AdminDashboard from './pages/admin/Dashboard';
 import ManageUsers from './pages/admin/ManageUsers';
 import KnowledgeBase from './pages/admin/KnowledgeBase';
 import CurriculumMapping from './pages/admin/CurriculumMapping';
+import ContentOversight from './pages/admin/ContentOversight';
 import BulkImportStudents from './pages/admin/BulkImportStudents';
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="/admin/users" element={<ProtectedRoute allowedRoles={['admin']}><ManageUsers /></ProtectedRoute>} />
           <Route path="/admin/import-students" element={<ProtectedRoute allowedRoles={['admin']}><BulkImportStudents /></ProtectedRoute>} />
           <Route path="/admin/knowledge-base" element={<ProtectedRoute allowedRoles={['admin']}><KnowledgeBase /></ProtectedRoute>} />
+          <Route path="/admin/content" element={<ProtectedRoute allowedRoles={['admin']}><ContentOversight /></ProtectedRoute>} />
           <Route path="/admin/academic-settings" element={<ProtectedRoute allowedRoles={['admin']}><CurriculumMapping /></ProtectedRoute>} />
 
             <Route path="*" element={<Navigate to="/" replace />} />

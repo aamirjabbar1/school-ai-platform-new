@@ -56,6 +56,7 @@ def _styles() -> dict:
         "qmeta":       ParagraphStyle("qmeta",       parent=base["Normal"],  fontSize=9,  textColor=colors.HexColor("#374151"), alignment=2, spaceAfter=8),
         "option":      ParagraphStyle("option",      parent=base["Normal"],  fontSize=10, leftIndent=24, spaceAfter=2, leading=14),
         "answer_head": ParagraphStyle("answer_head", parent=base["Heading2"], fontSize=14, spaceBefore=18, spaceAfter=8, textColor=colors.HexColor("#065f46")),
+        "sub2h":       ParagraphStyle("sub2h",       parent=base["Normal"],  fontSize=10.5, fontName="Helvetica-Bold", spaceBefore=4, spaceAfter=6, textColor=colors.HexColor("#1e3a8a")),
         "answer":      ParagraphStyle("answer",      parent=base["Normal"],  fontSize=10, leftIndent=4, spaceAfter=6, leading=14),
     }
     return branding.use_document_fonts(styles)
@@ -191,6 +192,48 @@ def _marks_summary_table(paper: dict, sections: list[tuple[str, list[dict]]], st
     return table
 
 
+def _source_audit(story: list, questions: list[dict], styles: dict) -> None:
+    """Grades 1-2 source trail, printed on the staff copy only.
+
+    The caller gates this on `include_answers`, which is False for students, so
+    the internal references never reach a candidate's paper.
+    """
+    traced = [q for q in questions if q.get("source")]
+    if not traced:
+        return
+
+    from services.primary_papers import source_label
+
+    story.append(Paragraph("Question Sources (internal — not for students)", styles["sub2h"]))
+    rows = [[
+        Paragraph("Q", styles["markshead"]),
+        Paragraph("Source", styles["markshead"]),
+        Paragraph("Reference", styles["markshead"]),
+    ]]
+    for q in traced:
+        src = q.get("source") or {}
+        reference = src.get("reference", "")
+        if src.get("planner_title"):
+            reference = f"{reference} — {src['planner_title']}"
+        rows.append([
+            Paragraph(_esc(q.get("number", "")), styles["answer"]),
+            Paragraph(_esc(source_label(src.get("type"))), styles["answer"]),
+            Paragraph(_esc(reference), styles["answer"]),
+        ])
+
+    W = branding.content_width(A4)
+    table = Table(rows, colWidths=[1.2 * cm, 4.6 * cm, W - 5.8 * cm], repeatRows=1)
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 12))
+
+
 def build_question_paper_pdf(paper: dict, include_answers: bool = False) -> bytes:
     styles = _styles()
     story: list = []
@@ -256,6 +299,7 @@ def build_question_paper_pdf(paper: dict, include_answers: bool = False) -> byte
     if include_answers and answer_key:
         story.append(PageBreak())
         story.append(Paragraph("Answer Key", styles["answer_head"]))
+        _source_audit(story, questions, styles)
         for ans in answer_key:
             num = ans.get("number", "")
             correct = _esc(ans.get("correct_answer", ""))

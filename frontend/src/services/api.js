@@ -162,6 +162,22 @@ export const adminAPI = {
       timeout: 120000,
     });
   },
+  // Centralised oversight of teacher-authored lesson plans and question papers.
+  // `type` is 'lesson-plans' or 'question-papers'.
+  listContent: (type, params) => api.get(`/admin/content/${type}`, { params }),
+  getContent: (type, id) => api.get(`/admin/content/${type}/${id}`),
+  getContentSummary: () => api.get('/admin/content/summary'),
+  getContentFilters: () => api.get('/admin/content/filters'),
+  getContentRevisions: (type, id) => api.get(`/admin/content/${type}/${id}/revisions`),
+  getContentRevision: (type, id, revisionId) =>
+    api.get(`/admin/content/${type}/${id}/revisions/${revisionId}`),
+  reviewContent: (type, id, data) => api.post(`/admin/content/${type}/${id}/review`, data),
+  editContent: (type, id, data) => api.patch(`/admin/content/${type}/${id}`, data),
+  archiveContent: (type, id, data) => api.post(`/admin/content/${type}/${id}/archive`, data),
+  // Re-runs the AI over the record's stored inputs; allow up to 10 min.
+  regenerateContent: (type, id) =>
+    api.post(`/admin/content/${type}/${id}/regenerate`, {}, { timeout: 600000 }),
+  deleteContent: (type, id) => api.delete(`/admin/content/${type}/${id}`),
   getImportBatches: () => api.get('/admin/students/import-batches'),
   getImportBatch: (id) => api.get(`/admin/students/import-batches/${id}`),
   downloadImportCredentials: (id) => api.get(`/admin/students/import-batches/${id}/credentials`, { responseType: 'blob' }),

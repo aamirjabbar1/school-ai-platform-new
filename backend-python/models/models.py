@@ -306,9 +306,93 @@ class DocumentChunk(Base):
     document = relationship("Document", back_populates="chunks")
 
 
+# ─── ADMIN REVIEW / AUDIT ─────────────────────────────────────────────────────
+#
+# Lesson plans and question papers are teacher-owned but institutionally
+# accountable: administrators review them, and every change is traceable. These
+# columns sit alongside `is_published` rather than replacing it — review status
+# and publication are independent, so admins can review before *or* after a
+# teacher publishes and existing teacher workflows are untouched.
+
+REVIEW_PENDING = "pending"
+REVIEW_APPROVED = "approved"
+REVIEW_REJECTED = "rejected"
+REVIEW_STATUSES = (REVIEW_PENDING, REVIEW_APPROVED, REVIEW_REJECTED)
+
+
+class ReviewableMixin:
+    """Approval state + authorship trail shared by reviewable content."""
+
+    review_status = Column(String(20), nullable=False, default=REVIEW_PENDING)
+    reviewed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    review_note = Column(Text, nullable=True)
+    # Bumped on every content change; matches the latest ContentRevision.
+    version = Column(Integer, nullable=False, default=1)
+    updated_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    # Archived records stay queryable for audit but drop out of normal lists.
+    is_archived = Column(Boolean, nullable=False, default=False)
+
+    def review_dict(self) -> dict:
+        return {
+            "review_status": self.review_status or REVIEW_PENDING,
+            "reviewed_by": self.reviewed_by,
+            "reviewed_at": self.reviewed_at.isoformat() if self.reviewed_at else None,
+            "review_note": self.review_note,
+            "version": self.version or 1,
+            "updated_by": self.updated_by,
+            "is_archived": bool(self.is_archived),
+        }
+
+
+class ContentRevision(Base):
+    """Append-only audit trail for lesson plans and question papers.
+
+    One row per meaningful event (creation, edit, AI regeneration, approval,
+    publication, archival), carrying a snapshot of the content at that version.
+    This single table therefore serves as version history, approval log and AI
+    generation history at once.
+    """
+    __tablename__ = "content_revisions"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    # "lesson_plan" | "question_paper"
+    content_type = Column(String(30), nullable=False, index=True)
+    content_id = Column(String(36), nullable=False, index=True)
+    version = Column(Integer, nullable=False, default=1)
+    # created | updated | regenerated | approved | rejected | published |
+    # unpublished | archived | restored
+    action = Column(String(20), nullable=False)
+    actor_id = Column(String(36), ForeignKey("users.id"), nullable=True)
+    # Denormalised so history survives the actor being deleted.
+    actor_name = Column(String(100), nullable=True)
+    actor_role = Column(String(20), nullable=True)
+    note = Column(Text, nullable=True)
+    # Content as it stood at this version; null for status-only events.
+    snapshot = Column(JSON, nullable=True)
+    # Generation parameters when this version came from the AI.
+    ai_inputs = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+
+    def to_dict(self, include_snapshot: bool = False) -> dict:
+        d = {
+            "id": self.id, "content_type": self.content_type,
+            "content_id": self.content_id, "version": self.version,
+            "action": self.action, "actor_id": self.actor_id,
+            "actor_name": self.actor_name, "actor_role": self.actor_role,
+            "note": self.note,
+            "ai_generated": self.ai_inputs is not None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+        if include_snapshot:
+            d["snapshot"] = self.snapshot
+            d["ai_inputs"] = self.ai_inputs
+        return d
+
+
 # ─── QUESTION PAPER ───────────────────────────────────────────────────────────
 
-class QuestionPaper(Base):
+class QuestionPaper(ReviewableMixin, Base):
     __tablename__ = "question_papers"
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
@@ -326,6 +410,9 @@ class QuestionPaper(Base):
     instructions = Column(Text, nullable=True)
     # Date printed in the paper header. Null = stamp the day it is downloaded.
     exam_date = Column(Date, nullable=True)
+    # Generation inputs, kept so an admin or teacher can regenerate the paper.
+    inputs = Column(JSON, nullable=True, default=dict)
+    academic_session = Column(String(40), nullable=True)
     is_published = Column(Boolean, default=False)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -333,17 +420,26 @@ class QuestionPaper(Base):
     teacher = relationship("User", back_populates="question_papers", foreign_keys=[teacher_id])
 
     def to_dict(self, hide_answers=False):
+        questions = self.questions or []
+        if hide_answers:
+            # Grades 1-2 questions carry an internal source reference for
+            # administrator auditing. It must never reach a student's copy.
+            questions = [{k: v for k, v in q.items() if k != "source"} for q in questions]
+
         d = {
             "id": self.id, "title": self.title, "subject": self.subject,
             "class_name": self.class_name, "section": self.section,
             "teacher_id": self.teacher_id,
-            "paper_type": self.paper_type, "questions": self.questions,
+            "paper_type": self.paper_type, "questions": questions,
             "total_marks": self.total_marks, "duration_minutes": self.duration_minutes,
             "instructions": self.instructions,
             "exam_date": self.exam_date.isoformat() if self.exam_date else None,
+            "academic_session": self.academic_session,
+            "inputs": self.inputs or {},
             "is_published": self.is_published,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            **self.review_dict(),
         }
         if not hide_answers:
             d["answer_key"] = self.answer_key
@@ -352,7 +448,7 @@ class QuestionPaper(Base):
 
 # ─── LESSON PLAN ──────────────────────────────────────────────────────────────
 
-class LessonPlan(Base):
+class LessonPlan(ReviewableMixin, Base):
     __tablename__ = "lesson_plans"
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
@@ -391,6 +487,7 @@ class LessonPlan(Base):
             "is_published": self.is_published,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            **self.review_dict(),
         }
 
 

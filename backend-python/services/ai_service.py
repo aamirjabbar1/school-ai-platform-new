@@ -17,12 +17,14 @@ Reference: https://docs.claude.com/en/api/messages-streaming
 """
 from __future__ import annotations
 
+import copy
+import logging
 from typing import Any, AsyncGenerator
 
 import anthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from services import exam_patterns
+from services import exam_patterns, primary_papers
 from services.document_service import (
     search_knowledge_base,
     build_context,
@@ -32,6 +34,8 @@ from services.document_service import (
     build_schedule_context,
 )
 from services.memory_service import search_user_memory, build_memory_context
+
+logger = logging.getLogger("agent")
 
 
 # ─── CLIENT ───────────────────────────────────────────────────────────────────
@@ -224,6 +228,99 @@ QUESTION_PAPER_TOOL: dict[str, Any] = {
 
 # Structured-output tool: predicted "important" / likely exam questions, derived
 # from analysing the past papers in the knowledge base.
+# ─── Grades 1-2 tools ─────────────────────────────────────────────────────────
+#
+# Papers for the youngest grades must be traceable question by question, so the
+# schema is the standard one plus a mandatory `source` block. It is derived from
+# QUESTION_PAPER_TOOL rather than written out again, so the two can never drift
+# apart — and grades 3-10 keep using the original untouched.
+
+def _build_primary_paper_tool() -> dict[str, Any]:
+    tool = copy.deepcopy(QUESTION_PAPER_TOOL)
+    tool["name"] = "submit_primary_question_paper"
+    tool["description"] = (
+        "Submit a complete examination paper for Grade 1 or 2. Every question must come from "
+        "the uploaded lesson planners and knowledge base extracts provided, and must carry a "
+        "`source` block naming exactly where it came from. Never submit a question you cannot "
+        "trace to an approved source that has already been taught."
+    )
+    question_schema = tool["input_schema"]["properties"]["sections"]["items"]["properties"]["questions"]["items"]
+    question_schema["properties"]["source"] = {
+        "type": "object",
+        "description": (
+            "Where this question comes from. Recorded for administrator audit; never shown "
+            "to students."
+        ),
+        "properties": {
+            "type": {
+                "type": "string",
+                "enum": list(primary_papers.APPROVED_SOURCES),
+                "description": (
+                    "lesson_planner_classwork = classwork recorded in the planner; "
+                    "bookwork = taught textbook content; end_of_chapter_exercise and "
+                    "end_of_book_exercise = exercises from the approved textbook."
+                ),
+            },
+            "reference": {
+                "type": "string",
+                "description": (
+                    "Exact location, e.g. 'Planner: Week 2, Day 3 classwork — counting in tens' "
+                    "or 'Maths Book 2, Chapter 4 exercise, Q6'."
+                ),
+            },
+            "planner_title": {
+                "type": "string",
+                "description": "Title of the lesson planner covering this lesson, when applicable.",
+            },
+            "taught_confirmation": {
+                "type": "string",
+                "description": (
+                    "State how you know this lesson was already taught, citing the planner "
+                    "week/day or its completed status. Required for every question."
+                ),
+            },
+        },
+        "required": ["type", "reference", "taught_confirmation"],
+    }
+    question_schema["required"] = list(question_schema["required"]) + ["source"]
+    return tool
+
+
+PRIMARY_QUESTION_PAPER_TOOL: dict[str, Any] = _build_primary_paper_tool()
+
+
+# The refusal path: rather than inventing questions to fill a paper, the model
+# reports what is missing so an administrator can act on it.
+INSUFFICIENT_CURRICULUM_TOOL: dict[str, Any] = {
+    "name": "report_insufficient_curriculum",
+    "description": (
+        "Call this INSTEAD of submitting a paper when the uploaded lesson planners and "
+        "knowledge base do not contain enough taught material to build the requested paper. "
+        "Never pad a paper with invented questions — reporting the shortfall is always the "
+        "correct action."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "description": "Plain explanation for the administrator of what is missing.",
+            },
+            "missing": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Specific chapters, topics or source material that would be needed.",
+            },
+            "available_marks": {
+                "type": "integer",
+                "description": "Marks that could be sourced properly, if a smaller paper is viable.",
+            },
+        },
+        "required": ["reason"],
+    },
+}
+
+
 IMPORTANT_QUESTIONS_TOOL: dict[str, Any] = {
     "name": "submit_important_questions",
     "description": (
@@ -523,6 +620,8 @@ def _flatten_paper(paper_data: dict) -> tuple[list[dict], list[dict]]:
                 "options":    q.get("options"),
                 "marks":      q.get("marks"),
                 "difficulty": q.get("difficulty"),
+                # Grades 1-2 attach an audit source; absent for every other class.
+                **({"source": q["source"]} if q.get("source") else {}),
             })
             answer_key.append({
                 "number":         q.get("number"),
@@ -920,10 +1019,171 @@ async def _reconcile_total_marks(
     return paper_data
 
 
+_PRIMARY_RULES = """SOURCING RULES — THESE OVERRIDE EVERYTHING ELSE:
+1. Every question must come from the LESSON PLANNERS or the KNOWLEDGE BASE EXTRACTS below.
+   You may not use outside knowledge, your own subject expertise, or anything you assume a
+   child of this age "should" know. If it is not in the material below, it cannot be asked.
+2. Each question must trace to exactly one approved source:
+   - lesson_planner_classwork  — classwork recorded in a lesson planner
+   - bookwork                  — taught content from the approved textbook
+   - end_of_chapter_exercise   — an exercise at the end of a taught chapter
+   - end_of_book_exercise      — an exercise from the end of the book
+3. Only examine lessons ALREADY TAUGHT. Each planner below is marked completed, in progress
+   or undated; never take a question from a lesson dated after today, or from a chapter the
+   planner does not show as covered.
+4. Fill in the `source` block on every question: its type, the exact reference, the planner
+   title where relevant, and how you know the lesson was already taught.
+5. If the material below cannot support the requested paper, call
+   `report_insufficient_curriculum` instead. Never invent questions to reach the mark total,
+   and never stretch a source to cover a topic it does not teach.
+6. Match the reading age and cognitive level of the grade: short sentences, familiar words,
+   one instruction per question, and the learning outcomes the planner states."""
+
+
+async def _generate_primary_paper(params: dict, db: AsyncSession) -> dict:
+    """Generate a Grade 1-2 paper strictly from taught lesson-planner content.
+
+    Separate from the general path so grades 3-10 keep their existing behaviour
+    exactly; the only thing shared is the school's paper formatting.
+    """
+    subject          = params["subject"]
+    class_level      = params["class_level"]
+    paper_type       = params["paper_type"]
+    total_marks      = params.get("total_marks", 100)
+    duration_minutes = params.get("duration_minutes", 60)
+    topics           = params.get("topics", [])
+    difficulty       = params.get("difficulty_distribution", {"easy": 30, "medium": 50, "hard": 20})
+
+    # 1. Lesson planners are mandatory — without one, nothing has been recorded
+    #    as taught and no question can be justified.
+    planners = await primary_papers.fetch_lesson_planners(
+        db, subject=subject, class_level=class_level)
+    primary_papers.require_planners(planners, subject, class_level)
+
+    # 2. Textbook / knowledge-base material behind bookwork and exercises.
+    topic_query = " ".join(topics) if topics else subject
+    book_results = await search_knowledge_base(
+        topic_query, subject=subject, class_level=class_level,
+        document_type="book", limit=15,
+    )
+    exercise_results = await search_knowledge_base(
+        f"{topic_query} end of chapter exercises questions review practice",
+        subject=subject, class_level=class_level, document_type="book", limit=10,
+    )
+    seen = {r.get("chunk_id") for r in book_results}
+    book_results += [r for r in exercise_results if r.get("chunk_id") not in seen]
+
+    # Knowledge-base search widens its filters when a narrow query finds nothing.
+    # That must not put another class's material in front of the model here.
+    book_results = primary_papers.filter_in_syllabus(
+        book_results, subject=subject, class_level=class_level)
+
+    if not book_results:
+        logger.info("[PRIMARY] no in-syllabus textbook extracts for %s %s — planner only",
+                    subject, class_level)
+
+    # 3. The school's own papers are a FORMAT reference only; questions never
+    #    come from them, which keeps the LSS layout without breaching sourcing.
+    pattern_items = await fetch_exam_pattern_documents(
+        db, subject=subject, class_level=class_level, max_docs=1)
+
+    exam_name = exam_patterns.exam_title(paper_type)
+    school = get_school()
+    planner_context = primary_papers.build_planner_context(planners)
+    book_context = build_context(book_results) or "(no textbook extracts available)"
+
+    blocks = [
+        f"Create a {exam_name} paper for {subject}, {class_level}, at {school}.",
+        _PRIMARY_RULES,
+        f"""REQUIREMENTS:
+- Total marks: {total_marks} (the marks of every question must add up to exactly this)
+- Duration: {duration_minutes} minutes
+- Difficulty mix: {difficulty.get('easy', 30)}% easy / {difficulty.get('medium', 50)}% medium / {difficulty.get('hard', 20)}% hard, judged for this grade
+{f"- Focus topics: {', '.join(topics)}" if topics else ""}""",
+        f"LESSON PLANNERS (the record of what has been taught):\n{planner_context}",
+        f"KNOWLEDGE BASE EXTRACTS (textbook, bookwork and exercises):\n{book_context}",
+    ]
+    if pattern_items:
+        blocks.append(
+            "PAPER FORMAT REFERENCE — copy the section layout and wording style only. "
+            "Do NOT take any question, topic or content from it:\n"
+            + build_exam_pattern_context(pattern_items, exam_patterns.LSS_BOARD)
+        )
+    blocks.append(
+        f"Now either call `{PRIMARY_QUESTION_PAPER_TOOL['name']}` with the complete paper, or "
+        "call `report_insufficient_curriculum` if the material above cannot support it."
+    )
+
+    system = [{
+        "type": "text",
+        "text": (
+            f"You are a Grade 1-2 examination-paper creator for {school}. You build papers "
+            "ONLY from lessons a class has demonstrably been taught, and you refuse rather "
+            "than invent. Every question you write is traceable to a named source in the "
+            "material you were given."
+        ),
+        "cache_control": {"type": "ephemeral"},
+    }]
+
+    paper_tool = dict(PRIMARY_QUESTION_PAPER_TOOL)
+    refuse_tool = dict(INSUFFICIENT_CURRICULUM_TOOL)
+    refuse_tool["cache_control"] = {"type": "ephemeral"}
+
+    response = await get_async_client().messages.create(
+        model=get_model(),
+        max_tokens=8192,
+        system=system,
+        messages=[{"role": "user", "content": "\n\n".join(blocks)}],
+        tools=[paper_tool, refuse_tool],
+        tool_choice={"type": "any"},
+    )
+
+    shortfall = _extract_tool_input(response, refuse_tool["name"])
+    if shortfall:
+        missing = shortfall.get("missing") or []
+        detail = shortfall.get("reason", "The uploaded curriculum does not cover this paper.")
+        if missing:
+            detail += "\n\nMissing from the uploaded curriculum:\n- " + "\n- ".join(missing)
+        logger.info("[PRIMARY] refused to generate for %s %s: %s", subject, class_level, detail[:200])
+        raise primary_papers.CurriculumComplianceError(
+            f"Paper generation stopped for {subject}, {class_level}.\n\n{detail}"
+        )
+
+    paper_data = _extract_tool_input(response, paper_tool["name"])
+    if not paper_data:
+        raise primary_papers.CurriculumComplianceError(
+            "The paper generator did not return a structured paper. Nothing has been saved."
+        )
+
+    # 4. Independent check that the sourcing rules were actually honoured.
+    primary_papers.validate_paper(paper_data, subject=subject, class_level=class_level)
+
+    questions, answer_key = _flatten_paper(paper_data)
+    sources = [f'{p["title"]} (lesson planner)' for p in planners]
+    sources += [s["title"] for s in build_kb_sources(book_results) if s["title"] not in sources]
+
+    return {
+        "paper_data": paper_data,
+        "questions":  questions,
+        "answer_key": answer_key,
+        "sources":    sources,
+        "board":      exam_patterns.LSS_BOARD,
+        "exam_title": exam_name,
+        "sourcing_policy": "grades_1_2_lesson_planner",
+        "planners_used": [{"id": p["id"], "title": p["title"], "status": p["status"]} for p in planners],
+    }
+
+
 async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
     subject          = params["subject"]
     class_level      = params["class_level"]
     paper_type       = params["paper_type"]
+
+    # Grades 1 and 2 are generated strictly from taught lesson-planner content.
+    # Every other class continues down the existing path untouched.
+    if primary_papers.applies_to(class_level):
+        return await _generate_primary_paper(params, db)
+
     total_marks      = params.get("total_marks", 100)
     duration_minutes = params.get("duration_minutes", 60)
     topics           = params.get("topics", [])

@@ -3,14 +3,17 @@ import { Link } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import StatCard from '../../components/StatCard';
 import { adminAPI } from '../../services/api';
-import { Users, Database, FileText, MessageSquare, BookOpen, TrendingUp, ArrowRight, Activity } from 'lucide-react';
+import { Users, Database, FileText, MessageSquare, BookOpen, TrendingUp, ArrowRight, Activity, ClipboardCheck } from 'lucide-react';
 
 export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
+  const [review, setReview] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     adminAPI.getDashboard().then(({ data }) => setStats(data)).finally(() => setLoading(false));
+    // Review backlog across both content types, for the oversight shortcut.
+    adminAPI.getContentSummary().then(({ data }) => setReview(data)).catch(() => {});
   }, []);
 
   if (loading) {
@@ -23,6 +26,8 @@ export default function AdminDashboard() {
     );
   }
 
+  const pendingReviews =
+    (review?.['lesson-plans']?.pending || 0) + (review?.['question-papers']?.pending || 0);
   const u = stats?.users || {};
   const c = stats?.content || {};
 
@@ -72,6 +77,19 @@ export default function AdminDashboard() {
             <div className="text-sm text-muted">Add students, teachers, and admins</div>
           </div>
           <ArrowRight size={18} className="text-faint group-hover:text-brand-cyan group-hover:translate-x-1 transition-all" />
+        </Link>
+        <Link to="/admin/content" className="card hover:shadow-glow transition-shadow group cursor-pointer flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-purple to-brand-blue flex items-center justify-center text-white shadow-glow group-hover:scale-105 transition-transform">
+            <ClipboardCheck size={24} />
+          </div>
+          <div className="flex-1">
+            <div className="font-semibold text-ink flex items-center gap-2">
+              Content Oversight
+              {pendingReviews > 0 && <span className="badge-yellow">{pendingReviews} awaiting review</span>}
+            </div>
+            <div className="text-sm text-muted">Review teachers' lesson plans and question papers</div>
+          </div>
+          <ArrowRight size={18} className="text-faint group-hover:text-brand-purple group-hover:translate-x-1 transition-all" />
         </Link>
         <Link to="/admin/knowledge-base" className="card hover:shadow-glow transition-shadow group cursor-pointer flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-brand-violet to-brand-purple flex items-center justify-center text-white shadow-glow group-hover:scale-105 transition-transform">

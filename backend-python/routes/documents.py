@@ -107,6 +107,8 @@ async def get_documents(
 
 ALLOWED_DOCUMENT_TYPES = {
     "book", "exam", "assignment", "notes", "worksheet",
+    # Lesson plans filed automatically from the chat assistant / plan generator.
+    "lesson_plan",
     # Academic-planning sources consulted automatically by the Lesson Plan Generator.
     "academic_calendar",  # school's annual academic plan (primary scheduling source)
     "official_notice",    # official circulars that temporarily override the calendar
@@ -300,8 +302,10 @@ async def get_stats(
             COUNT(DISTINCT d.id) FILTER (WHERE d.document_type = 'exam')  AS question_papers,
             COUNT(DISTINCT d.id) FILTER (WHERE d.document_type = 'academic_calendar') AS academic_calendars,
             COUNT(DISTINCT d.id) FILTER (WHERE d.document_type = 'official_notice')   AS official_notices,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.document_type = 'lesson_plan')       AS lesson_plans,
             COUNT(DISTINCT d.id) FILTER (WHERE d.document_type NOT IN
-                                            ('exam', 'academic_calendar', 'official_notice')
+                                            ('exam', 'academic_calendar', 'official_notice',
+                                             'lesson_plan')
                                           OR d.document_type IS NULL)     AS books,
             COUNT(DISTINCT dc.id)                                         AS total_chunks,
             COUNT(DISTINCT d.subject)                                     AS subjects_covered,

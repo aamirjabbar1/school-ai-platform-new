@@ -47,6 +47,7 @@ from routes.documents import router as documents_router
 from routes.question_papers import router as qp_router
 from routes.lesson_plans import router as lesson_plans_router
 from routes.admin import router as admin_router
+from routes.oversight import router as oversight_router
 from routes.notifications import router as notifications_router
 
 
@@ -158,6 +159,7 @@ app.include_router(documents_router,     prefix="/api")
 app.include_router(qp_router,            prefix="/api")
 app.include_router(lesson_plans_router,  prefix="/api")
 app.include_router(admin_router,         prefix="/api")
+app.include_router(oversight_router,     prefix="/api")
 app.include_router(notifications_router, prefix="/api")
 
 
