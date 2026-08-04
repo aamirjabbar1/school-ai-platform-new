@@ -5,14 +5,18 @@ ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
 # System deps:
-#   gcc + libpq-dev  → psycopg2 compilation
-#   curl             → healthcheck
-#   libgomp1         → OpenMP (required by onnxruntime used by fastembed)
+#   gcc + libpq-dev   → psycopg2 compilation
+#   curl              → healthcheck
+#   libgomp1          → OpenMP (required by onnxruntime used by fastembed)
+#   fonts-dejavu-core → Unicode text in generated PDFs. reportlab's built-in
+#                       faces are Latin-1 only, so maths and science glyphs
+#                       (ℝ, ⁻¹, vectors) would print as hollow boxes.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
     curl \
     libgomp1 \
+    fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first (better layer caching)

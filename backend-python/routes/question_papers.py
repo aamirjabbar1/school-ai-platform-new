@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -7,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config.database import get_db
 from middleware.auth import get_current_user, require_roles
 from models.models import User, QuestionPaper
+from services.exam_patterns import exam_title, paper_total_marks
 from services.ai_service import (
     generate_question_paper,
     predict_important_questions,
@@ -30,6 +33,8 @@ class GeneratePaperRequest(BaseModel):
     # "standard" builds from the curriculum; "model" mirrors uploaded past papers.
     generation_mode: str = "standard"
     use_past_papers: bool = True
+    # Date printed in the paper header; omitted = the day the paper is downloaded.
+    exam_date: date | None = None
 
 
 class PredictImportantRequest(BaseModel):
@@ -63,6 +68,7 @@ class CreatePaperRequest(BaseModel):
     total_marks: int = 100
     duration_minutes: int = 60
     instructions: str | None = None
+    exam_date: date | None = None
 
 
 @router.get("")
@@ -181,14 +187,21 @@ async def generate_paper(
         raise HTTPException(status_code=400, detail=str(exc))
 
     section = (body.section or "").strip() or None
-    prefix = "MODEL PAPER" if body.generation_mode == "model" else body.paper_type.replace('_', ' ').upper()
     class_label = f"{body.class_name} - {section}" if section else body.class_name
-    title = f"{prefix} - {body.subject} ({class_label})"
+    title = f"{exam_title(body.paper_type)} - {body.subject} ({class_label})"
+
+    # Record the marks the paper actually carries. The requested total is a hard
+    # instruction to the model, but if it lands slightly off, a header printing
+    # "Total Marks: 50" above 66 marks of questions is worse than an honest 66.
+    actual_marks = paper_total_marks(result["questions"])
+
     paper = QuestionPaper(
         title=title, subject=body.subject, class_name=body.class_name, section=section,
         teacher_id=user.id, paper_type=body.paper_type,
         questions=result["questions"], answer_key=result["answer_key"],
-        total_marks=body.total_marks, duration_minutes=body.duration_minutes,
+        total_marks=actual_marks or body.total_marks,
+        duration_minutes=body.duration_minutes,
+        exam_date=body.exam_date,
         is_published=False,
     )
     db.add(paper)
@@ -199,6 +212,8 @@ async def generate_paper(
         "paper": paper.to_dict(),
         "formatted_paper": result["paper_data"],
         "sources_used": result["sources"],
+        "board": result.get("board"),
+        "requested_total_marks": body.total_marks,
     }
 
 
@@ -270,7 +285,7 @@ async def create_paper(
         teacher_id=user.id, paper_type=body.paper_type,
         questions=body.questions, answer_key=body.answer_key,
         total_marks=body.total_marks, duration_minutes=body.duration_minutes,
-        instructions=body.instructions,
+        instructions=body.instructions, exam_date=body.exam_date,
     )
     db.add(paper)
     await db.commit()

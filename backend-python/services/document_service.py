@@ -1301,6 +1301,101 @@ async def fetch_schedule_documents(
     return items
 
 
+# ─── EXAM PATTERN RETRIEVAL (model papers, past papers) ──────────────────────
+#
+# A paper's *pattern* — section layout, marks distribution, question styles,
+# difficulty balance — lives in the shape of a whole paper, not in whichever
+# chunks happen to match a topic query. So these are fetched whole from
+# PostgreSQL in precedence order (services/exam_patterns.py) rather than through
+# semantic search, mirroring how calendars are handled above. Because the order
+# is "newest authoritative paper first", uploading a fresh model paper
+# immediately supersedes the older pattern.
+
+
+async def fetch_exam_pattern_documents(
+    db: AsyncSession,
+    subject: str | None = None,
+    class_level: str | None = None,
+    max_docs: int = 4,
+    max_chunks_per_doc: int = 40,
+) -> list[dict]:
+    """Fetch the papers that define the examination pattern for a subject/class.
+
+    Ordered by `exam_patterns.pattern_sort_key`: the governing board's latest
+    model paper first, then its past papers, then other boards, then the rest.
+    """
+    from services import exam_patterns
+
+    result = await db.execute(
+        select(Document).where(
+            Document.document_type == "exam",
+            Document.is_ingested.is_(True),
+        )
+    )
+    docs = list(result.scalars().all())
+    if not docs:
+        return []
+
+    def subject_matches(doc: Document) -> bool:
+        if not subject:
+            return True
+        value = (doc.subject or "").strip().lower()
+        # An untagged or catch-all paper still carries a usable pattern.
+        return not value or value in ("other", subject.strip().lower())
+
+    # A paper filed under the wrong subject still demonstrates this class's
+    # pattern, so the subject filter falls back. The class filter never does:
+    # a Class 3 paper must not be modelled on a Class 10 one. With no paper for
+    # the class, the caller falls back to the standard section structure.
+    in_class = [d for d in docs if _class_matches_schedule_doc(d.class_level, class_level)]
+    scoped = [d for d in in_class if subject_matches(d)] or in_class
+
+    board = exam_patterns.board_for_class(class_level)
+    scoped.sort(key=lambda d: exam_patterns.pattern_sort_key(d, board))
+
+    items: list[dict] = []
+    for doc in scoped[:max_docs]:
+        chunk_rows = await db.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == doc.id)
+            .order_by(DocumentChunk.chunk_index)
+            .limit(max_chunks_per_doc)
+        )
+        text = "\n\n".join(c.chunk_text for c in chunk_rows.scalars().all()).strip()
+        if not text:
+            continue
+        items.append({
+            "document_id":   doc.id,
+            "title":         doc.title,
+            "paper_type":    doc.paper_type or "",
+            "label":         exam_patterns.PAPER_TYPE_LABELS.get(doc.paper_type or "", "Question Paper"),
+            "subject":       doc.subject,
+            "class_level":   doc.class_level,
+            "academic_year": doc.academic_year or "",
+            "chapter":       doc.chapter or "",
+            "uploaded_at":   doc.created_at.isoformat() if doc.created_at else "",
+            "text":          text,
+        })
+    return items
+
+
+def build_exam_pattern_context(items: list[dict], board: str) -> str:
+    """Format pattern papers into a prompt block, most authoritative first."""
+    if not items:
+        return ""
+    parts: list[str] = []
+    for i, it in enumerate(items):
+        meta = [b for b in (it.get("label"), it.get("academic_year"),
+                            it.get("subject"), it.get("class_level")) if b]
+        authority = (
+            f"HIGHEST PRIORITY — treat as the current official {board} pattern"
+            if i == 0 else f"supporting reference #{i + 1}"
+        )
+        header = f'[EXAM PATTERN REFERENCE ({authority}): "{it["title"]}" — {", ".join(meta)}]'
+        parts.append(f"{header}\n{it['text']}")
+    return "\n\n---\n\n".join(parts)
+
+
 def build_schedule_context(items: list[dict], heading: str) -> str:
     """Format calendar/notice documents into a prompt block, newest-first and
     clearly labelled so the model knows which version is the latest active one."""

@@ -324,6 +324,8 @@ class QuestionPaper(Base):
     total_marks = Column(Integer, default=100)
     duration_minutes = Column(Integer, default=60)
     instructions = Column(Text, nullable=True)
+    # Date printed in the paper header. Null = stamp the day it is downloaded.
+    exam_date = Column(Date, nullable=True)
     is_published = Column(Boolean, default=False)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -337,7 +339,9 @@ class QuestionPaper(Base):
             "teacher_id": self.teacher_id,
             "paper_type": self.paper_type, "questions": self.questions,
             "total_marks": self.total_marks, "duration_minutes": self.duration_minutes,
-            "instructions": self.instructions, "is_published": self.is_published,
+            "instructions": self.instructions,
+            "exam_date": self.exam_date.isoformat() if self.exam_date else None,
+            "is_published": self.is_published,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

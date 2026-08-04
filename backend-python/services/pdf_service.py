@@ -7,10 +7,18 @@ Two flavours:
 
 The student-side download passes include_answers=False; the teacher download
 includes a final "Answer Key" page when answers are present.
+
+Every page is laid out inside the official LSS template (see services/branding.py),
+which supplies the ruled border, crest, wordmark, page numbers and copyright
+notice — this module only ever produces the content that sits inside that frame.
+
+The first page also carries the standard LSS paper head: the examination title
+derived from the paper type, the candidate/marking field block, and the marks
+summary grid.
 """
 from __future__ import annotations
 
-import io
+from datetime import date, datetime
 from typing import Any
 
 from reportlab.lib import colors
@@ -18,7 +26,6 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
-    SimpleDocTemplate,
     Paragraph,
     Spacer,
     PageBreak,
@@ -27,21 +34,31 @@ from reportlab.platypus import (
     KeepTogether,
 )
 
+from services import branding
+from services.exam_patterns import attainable_marks, choice_note, exam_title
+
 
 def _styles() -> dict:
     base = getSampleStyleSheet()
     styles = {
         "title":       ParagraphStyle("title",       parent=base["Title"],   fontSize=18, spaceAfter=4),
+        "exam":        ParagraphStyle("exam",        parent=base["Title"],   fontSize=15, spaceBefore=2, spaceAfter=2, textColor=colors.HexColor("#0f172a")),
         "subtitle":    ParagraphStyle("subtitle",    parent=base["Normal"],  fontSize=10, textColor=colors.grey, alignment=1, spaceAfter=12),
-        "section":     ParagraphStyle("section",     parent=base["Heading2"], fontSize=13, spaceBefore=14, spaceAfter=6, textColor=colors.HexColor("#1e3a8a")),
+        "field":       ParagraphStyle("field",       parent=base["Normal"],  fontSize=10, leading=13),
+        "fieldlabel":  ParagraphStyle("fieldlabel",  parent=base["Normal"],  fontSize=10, leading=13, fontName="Helvetica-Bold"),
+        "markshead":   ParagraphStyle("markshead",   parent=base["Normal"],  fontSize=9.5, leading=12, fontName="Helvetica-Bold", alignment=1),
+        "markscell":   ParagraphStyle("markscell",   parent=base["Normal"],  fontSize=9.5, leading=12, alignment=1),
+        "marksrow":    ParagraphStyle("marksrow",    parent=base["Normal"],  fontSize=9.5, leading=12, fontName="Helvetica-Bold"),
+        "section":     ParagraphStyle("section",     parent=base["Heading2"], fontSize=13, spaceBefore=14, spaceAfter=4, textColor=colors.HexColor("#1e3a8a")),
+        "sectionnote": ParagraphStyle("sectionnote", parent=base["Normal"],  fontSize=9.5, leading=12, spaceAfter=8, textColor=colors.HexColor("#374151"), fontName="Helvetica-Oblique"),
         "instr":       ParagraphStyle("instr",       parent=base["Normal"],  fontSize=10, textColor=colors.HexColor("#374151"), backColor=colors.HexColor("#f3f4f6"), borderPadding=8, leftIndent=4, rightIndent=4, spaceAfter=12),
         "question":    ParagraphStyle("question",    parent=base["Normal"],  fontSize=11, leftIndent=4, spaceAfter=4, leading=15),
-        "qmeta":       ParagraphStyle("qmeta",       parent=base["Normal"],  fontSize=9,  textColor=colors.grey, leftIndent=4, spaceAfter=8),
+        "qmeta":       ParagraphStyle("qmeta",       parent=base["Normal"],  fontSize=9,  textColor=colors.HexColor("#374151"), alignment=2, spaceAfter=8),
         "option":      ParagraphStyle("option",      parent=base["Normal"],  fontSize=10, leftIndent=24, spaceAfter=2, leading=14),
         "answer_head": ParagraphStyle("answer_head", parent=base["Heading2"], fontSize=14, spaceBefore=18, spaceAfter=8, textColor=colors.HexColor("#065f46")),
         "answer":      ParagraphStyle("answer",      parent=base["Normal"],  fontSize=10, leftIndent=4, spaceAfter=6, leading=14),
     }
-    return styles
+    return branding.use_document_fonts(styles)
 
 
 def _esc(text: Any) -> str:
@@ -65,45 +82,131 @@ def _group_questions_by_section(questions: list[dict]) -> list[tuple[str, list[d
     return sections
 
 
-def build_question_paper_pdf(paper: dict, include_answers: bool = False) -> bytes:
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=A4,
-        title=paper.get("title", "Question Paper"),
-        leftMargin=2 * cm,
-        rightMargin=2 * cm,
-        topMargin=1.8 * cm,
-        bottomMargin=1.8 * cm,
+# ─── LSS paper head (candidate fields + marks summary) ────────────────────────
+
+def _exam_date(paper: dict) -> str:
+    """Printed examination date — the teacher's, or today's if none was set."""
+    raw = paper.get("exam_date")
+    if raw:
+        try:
+            value = raw if isinstance(raw, date) else datetime.fromisoformat(str(raw)).date()
+            return value.strftime("%d-%m-%Y")
+        except (TypeError, ValueError):
+            return str(raw)
+    return date.today().strftime("%d-%m-%Y")
+
+
+def _paper_field_block(paper: dict, styles: dict) -> Table:
+    """The candidate / marking fields printed above every LSS paper.
+
+    Values the system already knows are filled in; the rest are ruled blanks for
+    the invigilator and examiner to complete by hand.
+    """
+    duration = paper.get("duration_minutes")
+    # (label, value) pairs laid out two to a row, in the official field order.
+    fields = [
+        ("Name", None),                     ("Subject", paper.get("subject")),
+        ("Checked By", None),               ("C.C.", None),
+        ("Class", paper.get("class_name")), ("Date", _exam_date(paper)),
+        ("Section", paper.get("section")),  ("Total Marks", paper.get("total_marks")),
+        ("Marks Obtained", None),           ("Time Allowed", f"{duration} min" if duration else None),
+    ]
+
+    rows: list[list] = []
+    blanks: list[tuple[int, int]] = []      # (col, row) of cells needing a rule
+    for i in range(0, len(fields), 2):
+        row = []
+        for col, (label, value) in enumerate(fields[i:i + 2]):
+            filled = value not in (None, "")
+            row.append(Paragraph(f"{_esc(label)}:", styles["fieldlabel"]))
+            row.append(Paragraph(_esc(value) if filled else "&nbsp;", styles["field"]))
+            if not filled:
+                blanks.append((col * 2 + 1, len(rows)))
+        rows.append(row)
+
+    W = branding.content_width(A4)
+    label_w, value_w = 3.1 * cm, W / 2 - 3.1 * cm
+    table = Table(rows, colWidths=[label_w, value_w, label_w, value_w])
+    style = [
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+    ]
+    style += [("LINEBELOW", (c, r), (c, r), 0.5, colors.HexColor("#111111")) for c, r in blanks]
+    table.setStyle(TableStyle(style))
+    return table
+
+
+def _section_label(name: str, index: int) -> str:
+    """Short column heading for the marks grid ('Section A: MCQs' → 'Section A')."""
+    head = (name or "").split(":")[0].strip()
+    if head and len(head) <= 18:
+        return head
+    return f"Section {chr(ord('A') + index)}"
+
+
+def _section_marks(questions: list[dict]) -> int:
+    """Marks a section contributes, honouring any internal choice it carries."""
+    attempt = next((q.get("attempt_count") for q in questions if q.get("attempt_count")), None)
+    return attainable_marks([q.get("marks") for q in questions], attempt)
+
+
+def _marks_summary_table(paper: dict, sections: list[tuple[str, list[dict]]], styles: dict) -> Table:
+    """Per-section marks grid: allotted on one row, obtained left blank."""
+    labels = [_section_label(name, i) for i, (name, _) in enumerate(sections)] or ["Section A"]
+    allotted = [_section_marks(qs) for _, qs in sections] or [0]
+
+    total = paper.get("total_marks")
+    if total in (None, ""):
+        total = sum(allotted)
+
+    header = [Paragraph("&nbsp;", styles["markshead"])]
+    header += [Paragraph(_esc(l), styles["markshead"]) for l in labels]
+    header.append(Paragraph("Total", styles["markshead"]))
+
+    allotted_row = [Paragraph("Total Marks", styles["marksrow"])]
+    allotted_row += [Paragraph(str(m), styles["markscell"]) for m in allotted]
+    allotted_row.append(Paragraph(str(total), styles["markscell"]))
+
+    obtained_row = [Paragraph("Marks Obtained", styles["marksrow"])]
+    obtained_row += [Paragraph("&nbsp;", styles["markscell"]) for _ in labels]
+    obtained_row.append(Paragraph("&nbsp;", styles["markscell"]))
+
+    W = branding.content_width(A4)
+    first_w = 3.6 * cm
+    rest_w = (W - first_w) / (len(labels) + 1)
+    table = Table(
+        [header, allotted_row, obtained_row],
+        colWidths=[first_w] + [rest_w] * (len(labels) + 1),
     )
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#111111")),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return table
+
+
+def build_question_paper_pdf(paper: dict, include_answers: bool = False) -> bytes:
     styles = _styles()
     story: list = []
+    questions = paper.get("questions") or []
+    sections = _group_questions_by_section(questions)
 
-    # ── Header table: title + meta block ───────────────────────────────────
-    title = _esc(paper.get("title", "Question Paper"))
-    story.append(Paragraph(title, styles["title"]))
-
-    paper_type = (paper.get("paper_type") or "").replace("_", " ").title()
-    meta = f"{_esc(paper.get('subject', ''))} &nbsp;•&nbsp; {_esc(paper.get('class_name', ''))} &nbsp;•&nbsp; {_esc(paper_type)}"
-    story.append(Paragraph(meta, styles["subtitle"]))
-
-    info_data = [
-        ["Total Marks", str(paper.get("total_marks", "—")),
-         "Duration", f'{paper.get("duration_minutes", "—")} min'],
-        ["Date", "____________________", "Name", "____________________"],
-    ]
-    info_tbl = Table(info_data, colWidths=[3 * cm, 4 * cm, 3 * cm, 5 * cm])
-    info_tbl.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 10),
-        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#374151")),
-        ("TEXTCOLOR", (2, 0), (2, -1), colors.HexColor("#374151")),
-        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
-        ("FONTNAME", (2, 0), (2, -1), "Helvetica-Bold"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.4, colors.HexColor("#e5e7eb")),
-    ]))
-    story.append(info_tbl)
+    # ── Standard LSS paper head ────────────────────────────────────────────
+    story.append(Paragraph(_esc(exam_title(paper.get("paper_type"))), styles["exam"]))
+    subject = paper.get("subject", "")
+    class_name = paper.get("class_name", "")
+    story.append(Paragraph(
+        f"{_esc(subject)} &nbsp;•&nbsp; {_esc(class_name)}", styles["subtitle"],
+    ))
+    story.append(_paper_field_block(paper, styles))
+    story.append(Spacer(1, 8))
+    story.append(_marks_summary_table(paper, sections, styles))
     story.append(Spacer(1, 12))
 
     # ── Instructions ───────────────────────────────────────────────────────
@@ -112,16 +215,23 @@ def build_question_paper_pdf(paper: dict, include_answers: bool = False) -> byte
         story.append(Paragraph(f"<b>Instructions:</b> {_esc(instructions)}", styles["instr"]))
 
     # ── Questions, grouped by section ──────────────────────────────────────
-    questions = paper.get("questions") or []
-    sections = _group_questions_by_section(questions)
-
     for section_name, qs in sections:
-        story.append(Paragraph(_esc(section_name), styles["section"]))
+        marks_note = f"({_section_marks(qs)} marks)"
+        story.append(Paragraph(f"{_esc(section_name)} &nbsp;{marks_note}", styles["section"]))
+
+        # A candidate cannot sit the paper without the choice rule, so state it —
+        # unless the section's own instructions already do, which is common.
+        attempt = next((q.get("attempt_count") for q in qs if q.get("attempt_count")), None)
+        written = (qs[0].get("section_instructions") or "").strip() if qs else ""
+        note = "" if "attempt" in written.lower() else choice_note(len(qs), attempt)
+        directions = " ".join(x for x in (note, written) if x)
+        if directions:
+            story.append(Paragraph(_esc(directions), styles["sectionnote"]))
+
         for q in qs:
             number = q.get("number", "")
             text = _esc(q.get("question", ""))
             marks = q.get("marks")
-            difficulty = q.get("difficulty")
 
             block: list = []
             block.append(Paragraph(f"<b>Q{number}.</b> {text}", styles["question"]))
@@ -130,13 +240,12 @@ def build_question_paper_pdf(paper: dict, include_answers: bool = False) -> byte
             for opt in options:
                 block.append(Paragraph(_esc(opt), styles["option"]))
 
-            meta_parts = []
+            # Marks belong on an exam paper; the difficulty rating is internal
+            # planning metadata and would have to be edited out before printing.
             if marks is not None:
-                meta_parts.append(f"{marks} mark{'s' if marks != 1 else ''}")
-            if difficulty:
-                meta_parts.append(difficulty)
-            if meta_parts:
-                block.append(Paragraph(" • ".join(meta_parts), styles["qmeta"]))
+                block.append(Paragraph(
+                    f"({marks} mark{'s' if marks != 1 else ''})", styles["qmeta"],
+                ))
 
             block.append(Spacer(1, 4))
             # Keep each question (with its options) on the same page when possible
@@ -154,8 +263,9 @@ def build_question_paper_pdf(paper: dict, include_answers: bool = False) -> byte
             suffix = f" ({marks} mark{'s' if marks != 1 else ''})" if marks else ""
             story.append(Paragraph(f"<b>Q{num}.</b> {correct}{suffix}", styles["answer"]))
 
-    doc.build(story)
-    return buf.getvalue()
+    return branding.build_branded_pdf(
+        story, pagesize=A4, title=paper.get("title", "Question Paper")
+    )
 
 
 # ─── LESSON PLAN PDF ──────────────────────────────────────────────────────────
@@ -173,7 +283,7 @@ _PLAN_CELL_GROUPS = [
 
 def _plan_styles() -> dict:
     base = getSampleStyleSheet()
-    return {
+    return branding.use_document_fonts({
         "title":   ParagraphStyle("lp_title",   parent=base["Title"],   fontSize=17, spaceAfter=4),
         "sub":     ParagraphStyle("lp_sub",     parent=base["Normal"],  fontSize=10, textColor=colors.grey, alignment=1, spaceAfter=10),
         "overview":ParagraphStyle("lp_over",    parent=base["Normal"],  fontSize=9.5, textColor=colors.HexColor("#374151"), backColor=colors.HexColor("#f3f4f6"), borderPadding=8, spaceAfter=12, leading=13),
@@ -182,7 +292,7 @@ def _plan_styles() -> dict:
         "cell":    ParagraphStyle("lp_cell",    parent=base["Normal"],  fontSize=7.5, leading=10),
         "sumhead": ParagraphStyle("lp_sumhead", parent=base["Heading2"],fontSize=13, spaceBefore=16, spaceAfter=8, textColor=colors.HexColor("#1e3a8a")),
         "sumcell": ParagraphStyle("lp_sumcell", parent=base["Normal"],  fontSize=9.5, leading=13),
-    }
+    })
 
 
 def _cell_para(lesson: dict, fields: list[tuple[str, str]], styles: dict) -> Paragraph:
@@ -234,7 +344,7 @@ _LSS_COVER_LABELS = [
 
 def _lss_styles() -> dict:
     base = getSampleStyleSheet()
-    return {
+    return branding.use_document_fonts({
         "title":  ParagraphStyle("lss_title",  parent=base["Title"],    fontSize=18, spaceAfter=2, textColor=colors.HexColor("#0f172a")),
         "sub":    ParagraphStyle("lss_sub",     parent=base["Normal"],   fontSize=10, alignment=1, textColor=colors.grey, spaceAfter=10),
         "sec":    ParagraphStyle("lss_sec",     parent=base["Heading2"], fontSize=13, spaceBefore=14, spaceAfter=6, textColor=colors.white,
@@ -245,7 +355,7 @@ def _lss_styles() -> dict:
         "cell":   ParagraphStyle("lss_cell",    parent=base["Normal"],   fontSize=9.5, leading=13),
         "cellb":  ParagraphStyle("lss_cellb",   parent=base["Normal"],   fontSize=9.5, leading=13, fontName="Helvetica-Bold"),
         "th":     ParagraphStyle("lss_th",      parent=base["Normal"],   fontSize=9.5, leading=13, fontName="Helvetica-Bold", textColor=colors.white),
-    }
+    })
 
 
 def _lss_heading(story: list, styles: dict, n: int, text: str) -> None:
@@ -290,13 +400,8 @@ def _lss_table(story: list, styles: dict, headers: list, rows: list, col_widths:
 
 
 def _build_lss_plan_pdf(plan: dict, plan_data: dict) -> bytes:
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf, pagesize=A4, title=plan.get("title", "Lesson Plan"),
-        leftMargin=1.8 * cm, rightMargin=1.8 * cm, topMargin=1.6 * cm, bottomMargin=1.6 * cm,
-    )
     styles = _lss_styles()
-    W = A4[0] - 3.6 * cm  # usable width
+    W = branding.content_width(A4)
     story: list = []
 
     story.append(Paragraph(_esc(plan_data.get("title") or plan.get("title", "Lesson Plan")), styles["title"]))
@@ -438,8 +543,9 @@ def _build_lss_plan_pdf(plan: dict, plan_data: dict) -> bytes:
         _lss_heading(story, styles, 17, "Values & Life Skills")
         _lss_bullets(story, styles, plan_data["values"])
 
-    doc.build(story)
-    return buf.getvalue()
+    return branding.build_branded_pdf(
+        story, pagesize=A4, title=plan.get("title", "Lesson Plan")
+    )
 
 
 # ─── Legacy schedule grid (landscape A4) ──────────────────────────────────────
@@ -449,14 +555,8 @@ def _build_legacy_plan_pdf(plan: dict, plan_data: dict) -> bytes:
     lessons = plan_data.get("lessons") or []
     summary = plan_data.get("summary") or {}
 
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=landscape(A4),
-        title=plan.get("title", "Lesson Plan"),
-        leftMargin=1.2 * cm, rightMargin=1.2 * cm,
-        topMargin=1.2 * cm, bottomMargin=1.2 * cm,
-    )
+    pagesize = landscape(A4)
+    W = branding.content_width(pagesize)
     styles = _plan_styles()
     story: list = []
 
@@ -486,7 +586,9 @@ def _build_legacy_plan_pdf(plan: dict, plan_data: dict) -> bytes:
         row = [wk_cell] + [_cell_para(ls, g[1], styles) for g in _PLAN_CELL_GROUPS]
         table_data.append(row)
 
-    col_widths = [2.4 * cm, 4.6 * cm, 4.8 * cm, 6.2 * cm, 4.4 * cm, 4.4 * cm]
+    # Proportions of the original grid, rescaled to the branded content width.
+    weights = [2.4, 4.6, 4.8, 6.2, 4.4, 4.4]
+    col_widths = [W * w / sum(weights) for w in weights]
     table = Table(table_data, colWidths=col_widths, repeatRows=1)
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a8a")),
@@ -524,7 +626,7 @@ def _build_legacy_plan_pdf(plan: dict, plan_data: dict) -> bytes:
                 Paragraph(_esc(val), styles["sumcell"]),
             ])
         if rows:
-            sum_tbl = Table(rows, colWidths=[6 * cm, 19.6 * cm])
+            sum_tbl = Table(rows, colWidths=[6 * cm, W - 6 * cm])
             sum_tbl.setStyle(TableStyle([
                 ("VALIGN", (0, 0), (-1, -1), "TOP"),
                 ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#e5e7eb")),
@@ -535,5 +637,6 @@ def _build_legacy_plan_pdf(plan: dict, plan_data: dict) -> bytes:
             ]))
             story.append(sum_tbl)
 
-    doc.build(story)
-    return buf.getvalue()
+    return branding.build_branded_pdf(
+        story, pagesize=pagesize, title=plan.get("title", "Lesson Plan")
+    )

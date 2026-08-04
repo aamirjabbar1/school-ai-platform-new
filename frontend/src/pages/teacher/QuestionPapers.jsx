@@ -5,8 +5,24 @@ import { FileText, Wand2, Loader2, Eye, Trash2, Globe, EyeOff, Plus, X, CheckCir
 import { useAuth } from '../../context/AuthContext';
 import { subjectsFor, classesFor, sectionsFor } from '../../constants/academics';
 
-const PAPER_TYPES = ['monthly_test', 'mid_term', 'final_exam', 'quiz', 'class_test'];
+// Examination type — printed as the paper's title. Mirrors EXAM_TITLES in
+// backend-python/services/exam_patterns.py.
+const PAPER_TYPES = [
+  { value: 'monthly_test', label: 'Monthly Test' },
+  { value: 'mid_term',     label: 'Mid-Term Examination' },
+  { value: 'final_exam',   label: 'Final Examination' },
+  { value: 'model_paper',  label: 'Model Paper' },
+  { value: 'quiz',         label: 'Quiz' },
+  { value: 'class_test',   label: 'Class Test' },
+];
 const IMPORTANCE_BADGE = { high: 'badge-red', medium: 'badge-yellow', low: 'badge-gray' };
+
+const EMPTY_GEN_FORM = {
+  subject: '', class_name: '', section: '', paper_type: 'class_test',
+  total_marks: 100, duration_minutes: 60, topics: '', exam_date: '',
+  generation_mode: 'standard', use_past_papers: true,
+  difficulty_distribution: { easy: 30, medium: 50, hard: 20 },
+};
 
 export default function QuestionPapers() {
   const { user } = useAuth();
@@ -27,12 +43,7 @@ export default function QuestionPapers() {
   const [predictForm, setPredictForm] = useState({ subject: '', class_name: '' });
   const [predictions, setPredictions] = useState(null);
 
-  const [genForm, setGenForm] = useState({
-    subject: '', class_name: '', section: '', paper_type: 'class_test',
-    total_marks: 100, duration_minutes: 60, topics: '',
-    generation_mode: 'standard', use_past_papers: true,
-    difficulty_distribution: { easy: 30, medium: 50, hard: 20 },
-  });
+  const [genForm, setGenForm] = useState(EMPTY_GEN_FORM);
 
   useEffect(() => {
     questionPaperAPI.getAll().then(({ data }) => setPapers(data)).finally(() => setLoading(false));
@@ -51,10 +62,11 @@ export default function QuestionPapers() {
       const { data } = await questionPaperAPI.generate({
         ...genForm,
         topics: genForm.topics ? genForm.topics.split(',').map((t) => t.trim()) : [],
+        exam_date: genForm.exam_date || null,
       });
       setPapers((prev) => [data.paper, ...prev]);
       setShowGenerator(false);
-      setGenForm({ subject: '', class_name: '', section: '', paper_type: 'class_test', total_marks: 100, duration_minutes: 60, topics: '', generation_mode: 'standard', use_past_papers: true, difficulty_distribution: { easy: 30, medium: 50, hard: 20 } });
+      setGenForm(EMPTY_GEN_FORM);
     } catch (e) {
       setError(e.response?.data?.detail || e.response?.data?.error || 'Failed to generate paper. Ensure relevant books/papers are uploaded.');
     } finally {
@@ -245,8 +257,20 @@ export default function QuestionPapers() {
                 )}
                 <div>
                   <label className="block text-sm font-medium text-ink/90 mb-1">Paper Type</label>
-                  <select value={genForm.paper_type} onChange={(e) => setGen('paper_type', e.target.value)} className="input-field">
-                    {PAPER_TYPES.map((t) => <option key={t} value={t} className="capitalize">{t.replace('_', ' ')}</option>)}
+                  <select
+                    value={genForm.paper_type}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setGenForm((f) => ({
+                        ...f,
+                        paper_type: value,
+                        // A model paper is by definition built from the uploaded pattern.
+                        generation_mode: value === 'model_paper' ? 'model' : f.generation_mode,
+                      }));
+                    }}
+                    className="input-field"
+                  >
+                    {PAPER_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
                 <div>
@@ -256,6 +280,11 @@ export default function QuestionPapers() {
                 <div>
                   <label className="block text-sm font-medium text-ink/90 mb-1">Duration (min)</label>
                   <input type="number" value={genForm.duration_minutes} onChange={(e) => setGen('duration_minutes', parseInt(e.target.value))} className="input-field" min="15" max="180" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Exam Date</label>
+                  <input type="date" value={genForm.exam_date} onChange={(e) => setGen('exam_date', e.target.value)} className="input-field" />
+                  <p className="text-xs text-faint mt-1">Leave empty to print the download date.</p>
                 </div>
               </div>
               <div>
@@ -280,21 +309,22 @@ export default function QuestionPapers() {
                     onClick={() => setGen('generation_mode', 'model')}
                     className={`p-2.5 rounded-lg border text-left text-xs transition-all ${genForm.generation_mode === 'model' ? 'border-purple-500 bg-purple-50 text-purple-800' : 'border-line text-muted hover:border-line'}`}
                   >
-                    <span className="font-semibold flex items-center gap-1"><Sparkles size={13} /> Model Paper</span>
-                    <span className="block text-muted mt-0.5">Mirrors uploaded past papers.</span>
+                    <span className="font-semibold flex items-center gap-1"><Sparkles size={13} /> Exam Pattern</span>
+                    <span className="block text-muted mt-0.5">Follows the latest uploaded model / past papers.</span>
                   </button>
                 </div>
                 {genForm.generation_mode === 'standard' && (
                   <label className="flex items-center gap-2 mt-2 text-xs text-muted">
                     <input type="checkbox" checked={genForm.use_past_papers} onChange={(e) => setGen('use_past_papers', e.target.checked)} />
-                    Use uploaded past papers as a style &amp; difficulty reference
+                    Follow the exam pattern of uploaded model / past papers
                   </label>
                 )}
               </div>
 
               <div className="p-3 bg-amber-50 rounded-lg text-xs text-amber-700 border border-amber-200">
                 ⚠️ Ensure relevant books/materials for this subject and class are uploaded in the Knowledge Base before generating.
-                {genForm.generation_mode === 'model' && ' Model Paper mode requires past papers (document type: Question Paper) for this subject and class.'}
+                {' '}Classes 8 and above follow the latest Federal Board model paper; Classes 1–7 follow the LSS pattern.
+                {genForm.generation_mode === 'model' && ' This mode requires at least one model or past paper (document type: Question Paper) for this subject and class.'}
               </div>
               <div className="flex gap-3">
                 <button onClick={() => setShowGenerator(false)} className="btn-secondary flex-1">Cancel</button>

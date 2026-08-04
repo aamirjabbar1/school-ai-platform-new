@@ -112,8 +112,10 @@ ALLOWED_DOCUMENT_TYPES = {
     "official_notice",    # official circulars that temporarily override the calendar
 }
 ALLOWED_LANGUAGES = {"English", "Urdu", "Bilingual"}
-# Sub-classification for question papers (document_type == "exam")
-ALLOWED_PAPER_TYPES = {"past_paper", "test", "midterm", "final", "mcqs"}
+# Sub-classification for question papers (document_type == "exam").
+# "model_paper" is the highest-priority formatting/pattern reference — see
+# services/exam_patterns.py.
+ALLOWED_PAPER_TYPES = {"model_paper", "past_paper", "test", "midterm", "final", "mcqs"}
 
 
 @router.post("/upload")

@@ -22,9 +22,12 @@ from typing import Any, AsyncGenerator
 import anthropic
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from services import exam_patterns
 from services.document_service import (
     search_knowledge_base,
     build_context,
+    build_exam_pattern_context,
+    fetch_exam_pattern_documents,
     fetch_schedule_documents,
     build_schedule_context,
 )
@@ -178,6 +181,16 @@ QUESTION_PAPER_TOOL: dict[str, Any] = {
                     "properties": {
                         "name":         {"type": "string", "description": "e.g. 'Section A: Multiple Choice Questions'"},
                         "instructions": {"type": "string"},
+                        "attempt_count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": (
+                                "Internal choice: how many of this section's questions a candidate "
+                                "must attempt, when the section prints more than that (e.g. 6 where "
+                                "9 questions are given). Omit when every question is compulsory. "
+                                "Only the attempted questions count towards the paper total."
+                            ),
+                        },
                         "questions": {
                             "type": "array",
                             "minItems": 1,
@@ -501,6 +514,10 @@ def _flatten_paper(paper_data: dict) -> tuple[list[dict], list[dict]]:
             questions.append({
                 "number":     q.get("number"),
                 "section":    section.get("name"),
+                # Section-level fields ride along on each question: the stored
+                # paper is a flat list, and the renderer regroups by section.
+                "section_instructions": section.get("instructions"),
+                "attempt_count":        section.get("attempt_count"),
                 "question":   q.get("question"),
                 "type":       q.get("type"),
                 "options":    q.get("options"),
@@ -772,6 +789,137 @@ async def chat_with_rag(
 
 # ─── GENERATE QUESTION PAPER (structured output via tool_use) ────────────────
 
+_REFERENCE_PRIORITY = """REFERENCE PRIORITY (highest first — the references below are already in this order,
+so the first one is authoritative and later ones only fill gaps):
+  1. Latest Federal Board Model Paper
+  2. Latest Federal Board Past Papers
+  3. Earlier Federal Board papers
+  4. Lahore School System past papers
+  5. Teacher-uploaded papers
+  6. Other knowledge-base resources"""
+
+
+def _board_rules(board: str, class_level: str) -> str:
+    """The examination-pattern rule that governs this class."""
+    if board == exam_patterns.FEDERAL_BOARD:
+        return (
+            f"EXAMINATION AUTHORITY: {class_level} sits under the {board} pattern.\n"
+            "- Follow the LATEST Federal Board examination pattern exactly. The most recently "
+            "uploaded Model Paper always overrides older patterns; if it differs from earlier "
+            "papers, the newer structure wins without exception.\n"
+            "- Reproduce its number of sections, section names and order, MCQ pattern, question "
+            "types, internal choice rules (e.g. 'attempt any 5 of 8'), chapter weightage and the "
+            "PROPORTIONS in which marks are split between sections. Scale the question counts to "
+            "the requested total rather than copying them.\n"
+            "- The result should read like a well-judged guess paper for the coming exam: built "
+            "on the recurring topics and question trends visible across the references, while "
+            "every question is newly written."
+        )
+    return (
+        f"EXAMINATION AUTHORITY: {class_level} follows the {board} (school) paper pattern.\n"
+        "- Learn the pattern from the school's own model, past, test, midterm and final papers "
+        "for this class, and generate in that same format and assessment style.\n"
+        "- Match the school's section layout, marks distribution, question phrasing and the "
+        "level of language used with children of this age."
+    )
+
+
+_PATTERN_ANALYSIS = """HOW TO USE THE REFERENCE PAPERS:
+- Analyse them; never copy them. Work out the section structure, marks distribution, question
+  styles, chapter weightage, frequently tested concepts, difficulty progression and Bloom's
+  levels, then write an ORIGINAL paper that matches that analysis.
+- No question may be a verbatim or lightly reworded copy of a reference question, and no
+  question may repeat within this paper.
+- Every question must be answerable from the curriculum content supplied below.
+- A reference paper will often carry a different total. Keep its section layout and the
+  PROPORTIONS of its marks split, but scale the number of questions per section so this paper
+  totals exactly the marks requested below. The requested total is a hard constraint; the
+  reference total is not."""
+
+
+def _paper_marks(paper_data: dict) -> int:
+    """Marks a candidate can score, honouring each section's internal choice."""
+    return sum(
+        exam_patterns.attainable_marks(
+            [q.get("marks") for q in section.get("questions", [])],
+            section.get("attempt_count"),
+        )
+        for section in (paper_data or {}).get("sections", [])
+    )
+
+
+async def _reconcile_total_marks(
+    paper_data: dict,
+    response,
+    *,
+    total_marks: int,
+    system: list,
+    tool: dict,
+    first_turn: dict,
+) -> dict:
+    """Reject a paper whose marks don't add up and let the model correct it once.
+
+    Totalling marks across a long structured output is exactly the kind of
+    arithmetic a model slips on, and prompt wording alone doesn't fix it — a
+    paper printed with "Total Marks: 50" over 70 marks of questions is unusable.
+    Feeding the discrepancy back as a tool error is deterministic and costs one
+    extra call only when the paper is actually wrong.
+    """
+    actual = _paper_marks(paper_data)
+    if actual == total_marks or not paper_data.get("sections"):
+        return paper_data
+
+    tool_use_id = next(
+        (b.id for b in response.content
+         if getattr(b, "type", None) == "tool_use" and b.name == tool["name"]),
+        None,
+    )
+    if not tool_use_id:
+        return paper_data
+
+    print(f"[question_paper] marks total {actual} != {total_marks} — requesting a correction")
+    correction = (
+        f"REJECTED: the marks of your questions add up to {actual}, but this paper must total "
+        f"exactly {total_marks} ({actual - total_marks:+d}). Keep the same sections, style and "
+        "difficulty balance, then adjust the number of questions and/or the marks per question "
+        "until the sum is exactly right. Add the marks up yourself before submitting, and call "
+        "the tool again with the corrected paper."
+    )
+
+    try:
+        followup = await get_async_client().messages.create(
+            model=get_model(),
+            max_tokens=8192,
+            system=system,
+            messages=[
+                first_turn,
+                {"role": "assistant", "content": response.content},
+                {"role": "user", "content": [{
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": correction,
+                    "is_error": True,
+                }]},
+            ],
+            tools=[tool],
+            tool_choice={"type": "tool", "name": tool["name"]},
+        )
+    except Exception as exc:
+        print(f"[question_paper] correction call failed, keeping first paper: {exc}")
+        return paper_data
+
+    corrected = _extract_tool_input(followup, tool["name"])
+    if not corrected or not corrected.get("sections"):
+        return paper_data
+
+    # Keep whichever attempt lands closer to the requested total.
+    corrected_marks = _paper_marks(corrected)
+    print(f"[question_paper] corrected marks total: {corrected_marks}")
+    if abs(corrected_marks - total_marks) < abs(actual - total_marks):
+        return corrected
+    return paper_data
+
+
 async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
     subject          = params["subject"]
     class_level      = params["class_level"]
@@ -791,61 +939,66 @@ async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
         document_type="book", limit=15,
     )
 
-    # Past-paper (exam) content — pattern/style reference; required for model mode.
-    past_results: list[dict] = []
+    # Examination pattern references — whole papers, ordered model paper first.
+    # Required for model mode; a style/structure reference otherwise.
+    pattern_items: list[dict] = []
     if use_past_papers or generation_mode == "model":
-        past_results = await search_knowledge_base(
-            topic_query, subject=subject, class_level=class_level,
-            document_type="exam", limit=15,
+        pattern_items = await fetch_exam_pattern_documents(
+            db, subject=subject, class_level=class_level,
         )
 
-    if generation_mode == "model" and not past_results:
+    if generation_mode == "model" and not pattern_items:
         raise ValueError(
-            "No past papers found for this subject and class. Upload past papers in the "
+            "No model or past papers found for this subject and class. Upload them in the "
             "Knowledge Base first, or switch to Standard mode."
         )
-    if not book_results and not past_results:
+    if not book_results and not pattern_items:
         raise ValueError("No content found in knowledge base for the specified subject and class level.")
 
+    board = exam_patterns.board_for_class(class_level)
+    exam_name = exam_patterns.exam_title(paper_type)
+
     book_context = build_context(book_results) or ""
-    past_context = build_context(past_results) or ""
-    kb_sources = build_kb_sources(book_results + past_results)
+    pattern_context = build_exam_pattern_context(pattern_items, board)
+    kb_sources = build_kb_sources(book_results)
     school = get_school()
 
     requirements = f"""REQUIREMENTS:
+- Examination type: {exam_name}
 - Subject: {subject}
 - Class:   {class_level}
-- Total marks:       {total_marks}
 - Duration:          {duration_minutes} minutes
 - Difficulty mix:    {difficulty.get('easy', 30)}% easy / {difficulty.get('medium', 50)}% medium / {difficulty.get('hard', 20)}% hard
-{f"- Focus topics:      {', '.join(topics)}" if topics else ""}"""
+{f"- Focus topics:      {', '.join(topics)}" if topics else ""}
 
-    if generation_mode == "model":
-        header = (
-            f"Create a MODEL {paper_type.replace('_', ' ')} paper for {school} by analysing the PAST "
-            "PAPERS provided below. Study them to infer the section structure, marks distribution, "
-            "question styles, recurring topics, and difficulty balance, then produce a NEW paper that "
-            "mirrors that exam pattern. Do NOT copy past-paper questions verbatim — write fresh "
-            "questions in the same style. Keep every question aligned to the curriculum content."
-        )
+TOTAL MARKS = {total_marks}. This is the one requirement that overrides everything else,
+including the shape of any reference paper. Where a section gives internal choice, set its
+`attempt_count` — only the questions a candidate actually attempts count towards the total
+(a section printing 9 questions with attempt_count 6 contributes 6 questions' worth of marks).
+Before calling the tool, add up the marks that count. If the sum is not exactly {total_marks},
+adjust the question counts or the marks per question and add them up again. Only submit once
+the sum is exactly {total_marks}."""
+
+    header = f"Create a complete {exam_name} paper for {subject}, {class_level}, at {school}."
+
+    rules = [_board_rules(board, class_level)]
+    if pattern_context:
+        rules += [_REFERENCE_PRIORITY, _PATTERN_ANALYSIS]
     else:
-        header = (
-            f"Create a complete {paper_type.replace('_', ' ')} examination paper for {school}.\n\n"
-            "STRUCTURE (distribute marks appropriately):\n"
-            "- Section A: Multiple Choice Questions (MCQs)\n"
-            "- Section B: Short Answer Questions\n"
-            "- Section C: Long Answer / Essay Questions"
+        # Nothing uploaded yet for this class — fall back to the conventional
+        # three-section layout so a paper can still be produced.
+        rules.append(
+            "No reference papers have been uploaded for this class yet, so use the standard "
+            "structure:\n- Section A: Multiple Choice Questions (MCQs)\n"
+            "- Section B: Short Answer Questions\n- Section C: Long Answer / Essay Questions"
         )
 
-    context_blocks = f"CURRICULUM CONTENT (source of truth):\n{book_context or '(none provided)'}"
-    if past_context:
-        context_blocks += (
-            "\n\n---\n\nPAST PAPER REFERENCE (use for structure, style, difficulty and recurring "
-            f"topics — do not copy verbatim):\n{past_context}"
-        )
+    context_blocks = f"CURRICULUM CONTENT (source of truth for facts):\n{book_context or '(none provided)'}"
+    if pattern_context:
+        context_blocks += f"\n\n---\n\n{pattern_context}"
 
     instructions = (
-        f"{header}\n\n{requirements}\n\n"
+        f"{header}\n\n" + "\n\n".join(rules) + f"\n\n{requirements}\n\n"
         "Use the content below. Then call the `submit_question_paper` tool exactly once with the "
         f"complete paper.\n\n{context_blocks}"
     )
@@ -854,7 +1007,10 @@ async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
         "type": "text",
         "text": (
             f"You are an expert examination-paper creator for {school}. "
-            "Build curriculum-aligned papers strictly from the provided content. "
+            "Build curriculum-aligned papers strictly from the provided content, following the "
+            "examination pattern of the board that governs the class. Papers must be original, "
+            "balanced across chapters and difficulty, free of repeated questions, and ready to "
+            "print without further editing. "
             "Always finish by calling the submit_question_paper tool with the complete structured paper."
         ),
         "cache_control": {"type": "ephemeral"},
@@ -863,11 +1019,12 @@ async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
     paper_tool = dict(QUESTION_PAPER_TOOL)
     paper_tool["cache_control"] = {"type": "ephemeral"}
 
+    first_turn = {"role": "user", "content": instructions}
     response = await get_async_client().messages.create(
         model=get_model(),
         max_tokens=8192,
         system=paper_system,
-        messages=[{"role": "user", "content": instructions}],
+        messages=[first_turn],
         tools=[paper_tool],
         tool_choice={"type": "tool", "name": "submit_question_paper"},
     )
@@ -876,13 +1033,25 @@ async def generate_question_paper(params: dict, db: AsyncSession) -> dict:
     if not paper_data:
         raise ValueError("Claude did not return a structured question paper.")
 
+    paper_data = await _reconcile_total_marks(
+        paper_data, response,
+        total_marks=total_marks, system=paper_system, tool=paper_tool,
+        first_turn=first_turn,
+    )
     questions, answer_key = _flatten_paper(paper_data)
+
+    # Surface the pattern papers alongside the curriculum sources so the teacher
+    # can see which references shaped the paper, most authoritative first.
+    sources = [f'{it["title"]} ({it["label"]})' for it in pattern_items]
+    sources += [s["title"] for s in kb_sources if s["title"] not in sources]
 
     return {
         "paper_data": paper_data,
         "questions":  questions,
         "answer_key": answer_key,
-        "sources":    [s["title"] for s in kb_sources],
+        "sources":    sources,
+        "board":      board,
+        "exam_title": exam_name,
     }
 
 

@@ -6,11 +6,14 @@ Render a lesson plan into a Microsoft Word (.docx) document using python-docx.
 Produces a landscape document with a heading, an optional overview, a schedule
 table (one row per lesson), and a summary table — mirroring the PDF export so
 teachers can edit the plan in Word.
+
+Page furniture (ruled border, crest, wordmark, page numbers and the copyright
+notice) comes from the official LSS template in services/branding.py, so Word
+downloads carry exactly the same branding as the PDF.
 """
 from __future__ import annotations
 
 import io
-from typing import Any
 
 from docx import Document
 from docx.shared import Pt, RGBColor, Cm
@@ -18,6 +21,8 @@ from docx.enum.section import WD_ORIENT
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+
+from services import branding
 
 
 # Mirrors _PLAN_CELL_GROUPS in pdf_service so both exports show the same fields.
@@ -188,12 +193,11 @@ def _lss_kv(doc, pairs: list) -> None:
 def _build_lss_plan_docx(plan: dict, plan_data: dict) -> bytes:
     doc = Document()
 
-    # Portrait A4
+    # Portrait A4, then the official LSS frame/header/footer on top of it.
     section = doc.sections[0]
     section.orientation = WD_ORIENT.PORTRAIT
     section.page_width, section.page_height = Cm(21.0), Cm(29.7)
-    section.left_margin = section.right_margin = Cm(1.8)
-    section.top_margin = section.bottom_margin = Cm(1.6)
+    branding.apply_docx_branding(doc)
 
     title = doc.add_heading(plan_data.get("title") or plan.get("title", "Lesson Plan"), level=0)
     title.alignment = WD_TABLE_ALIGNMENT.CENTER
@@ -346,12 +350,11 @@ def _build_legacy_plan_docx(plan: dict, plan_data: dict) -> bytes:
 
     doc = Document()
 
-    # Landscape A4
+    # Landscape A4, then the official LSS frame/header/footer on top of it.
     section = doc.sections[0]
     section.orientation = WD_ORIENT.LANDSCAPE
     section.page_width, section.page_height = Cm(29.7), Cm(21.0)
-    section.left_margin = section.right_margin = Cm(1.2)
-    section.top_margin = section.bottom_margin = Cm(1.2)
+    branding.apply_docx_branding(doc)
 
     # Title + meta
     title = doc.add_heading(plan.get("title", "Lesson Plan"), level=0)

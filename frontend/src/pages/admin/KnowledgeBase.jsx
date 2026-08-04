@@ -8,6 +8,7 @@ import {
 import { KB_SUBJECTS as SUBJECTS, CLASS_LEVELS } from '../../constants/academics';
 const LANGUAGES = ['English', 'Urdu', 'Bilingual'];
 const PAPER_TYPES = [
+  { value: 'model_paper', label: 'Model Paper' },
   { value: 'past_paper', label: 'Past Paper' },
   { value: 'test',       label: 'Test Paper' },
   { value: 'midterm',    label: 'Midterm Paper' },

@@ -188,6 +188,12 @@ services:
       SCHOOL_NAME: ${SCHOOL_NAME:-My School}
       SCHOOL_TAGLINE: ${SCHOOL_TAGLINE:-Excellence in Education}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
+      # Document branding — defaults ship in the image, see assets/README.md
+      LSS_SCHOOL_NAME: ${LSS_SCHOOL_NAME:-Lahore School System}
+      LSS_COPYRIGHT_NOTICE: ${LSS_COPYRIGHT_NOTICE:-}
+      LSS_LOGO_PATH: ${LSS_LOGO_PATH:-}
+      LSS_TEMPLATE_PDF: ${LSS_TEMPLATE_PDF:-}
+      LSS_WORDMARK_FONT: ${LSS_WORDMARK_FONT:-}
       MAX_FILE_SIZE: 314572800
       UPLOAD_DIR: /app/uploads
     ports:
@@ -198,6 +204,9 @@ services:
       # Bind-mount alembic migrations so autogenerate writes to the host
       # filesystem and host-side edits are visible inside the container.
       - ./backend-python/alembic/versions:/app/alembic/versions
+      # Bind-mount the LSS document template so the school can swap the logo or
+      # drop in the official template PDF without rebuilding the image.
+      - ./backend-python/assets:/app/assets:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 30s
