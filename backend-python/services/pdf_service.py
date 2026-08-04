@@ -26,7 +26,6 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.platypus import (
-    Paragraph,
     Spacer,
     PageBreak,
     Table,
@@ -34,8 +33,12 @@ from reportlab.platypus import (
     KeepTogether,
 )
 
-from services import branding
+from services import branding, rtl
 from services.exam_patterns import attainable_marks, choice_note, exam_title
+# Paragraph comes from services.rtl, not reportlab: it is the same flowable with
+# right-to-left word ordering applied once the lines are broken, so Urdu in a
+# paper or lesson plan reads correctly. Latin-only text is unaffected.
+from services.rtl import Paragraph
 
 
 def _styles() -> dict:
@@ -63,11 +66,8 @@ def _styles() -> dict:
 
 
 def _esc(text: Any) -> str:
-    """Escape text for reportlab Paragraph (XML-like)."""
-    if text is None:
-        return ""
-    s = str(text)
-    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    """Escape text for reportlab Paragraph (XML-like), shaping any Urdu/Arabic."""
+    return rtl.escape(text)
 
 
 def _group_questions_by_section(questions: list[dict]) -> list[tuple[str, list[dict]]]:

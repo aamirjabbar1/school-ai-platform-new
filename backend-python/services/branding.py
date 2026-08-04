@@ -164,6 +164,82 @@ def document_fonts() -> dict[str, str]:
     }
 
 
+# ─── Urdu / Arabic typeface ───────────────────────────────────────────────────
+#
+# DejaVu covers the maths and science glyphs but carries almost no Urdu: ٹ ڈ ڑ
+# ں ھ ے and friends print as hollow boxes. A dedicated Arabic-script face is
+# used for those words only (see services/rtl.py), so English text in the same
+# sentence keeps the document font.
+
+URDU_FONT_FAMILY = "LSSUrdu"
+
+_URDU_FONT_DIRS = tuple(p for p in (
+    os.getenv("LSS_URDU_FONT_DIR"),
+    "/usr/share/fonts/truetype/noto",
+    "/usr/share/fonts/opentype/noto",
+    "/usr/share/fonts/truetype/amiri",
+    "/usr/share/fonts/opentype/amiri",
+) if p)
+
+# Naskh, not Nastaliq. Shaping produces the basic joined forms that a Naskh face
+# is drawn for; a Nastaliq face needs the cascading OpenType positioning that
+# reportlab cannot do, and would render as a flat, broken-looking line.
+_URDU_FACES = (
+    ("NotoNaskhArabic-Regular.ttf", "NotoNaskhArabic-Bold.ttf"),
+    ("NotoNaskhArabic*.ttf", None),
+    ("Amiri-Regular.ttf", "Amiri-Bold.ttf"),
+    ("NotoSansArabic-Regular.ttf", "NotoSansArabic-Bold.ttf"),
+)
+
+
+def _find_font(pattern: str) -> Path | None:
+    """First font matching a filename or glob across the configured font dirs."""
+    for directory in _URDU_FONT_DIRS:
+        base = Path(directory)
+        exact = base / pattern
+        if exact.is_file():
+            return exact
+        try:
+            matches = sorted(base.glob(pattern))
+        except OSError:
+            continue
+        if matches:
+            return matches[0]
+    return None
+
+
+@lru_cache(maxsize=1)
+def urdu_font() -> str | None:
+    """Registered family name for Urdu/Arabic text, or None if no face is installed."""
+    override = os.getenv("LSS_URDU_FONT")
+    faces = ((override, os.getenv("LSS_URDU_FONT_BOLD")),) + _URDU_FACES if override else _URDU_FACES
+
+    for regular_name, bold_name in faces:
+        regular = Path(regular_name) if regular_name and Path(regular_name).is_file() else _find_font(regular_name)
+        if not regular:
+            continue
+        bold = _find_font(bold_name) if bold_name else None
+        bold_family = f"{URDU_FONT_FAMILY}-Bold" if bold else URDU_FONT_FAMILY
+        try:
+            pdfmetrics.registerFont(TTFont(URDU_FONT_FAMILY, str(regular)))
+            if bold:
+                pdfmetrics.registerFont(TTFont(bold_family, str(bold)))
+            # So <b> around Urdu resolves to the bold cut instead of dropping
+            # back to a Latin face with no Urdu glyphs.
+            pdfmetrics.registerFontFamily(
+                URDU_FONT_FAMILY,
+                normal=URDU_FONT_FAMILY, bold=bold_family,
+                italic=URDU_FONT_FAMILY, boldItalic=bold_family,
+            )
+            return URDU_FONT_FAMILY
+        except Exception as exc:
+            print(f"[branding] could not register Urdu font {regular}: {exc}")
+
+    print("[branding] no Urdu/Arabic font found — Urdu text in PDFs will print as boxes; "
+          "install fonts-noto-core or point LSS_URDU_FONT_DIR at a Naskh face")
+    return None
+
+
 _BUILTIN_TO_ROLE = {
     "Helvetica": "regular",         "Times-Roman": "regular",
     "Helvetica-Bold": "bold",       "Times-Bold": "bold",
