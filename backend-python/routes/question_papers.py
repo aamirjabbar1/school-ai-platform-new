@@ -18,6 +18,7 @@ from services.ai_service import (
     grade_self_assessment,
 )
 from services.pdf_service import build_question_paper_pdf
+from utils.http import attachment_disposition
 
 router = APIRouter(prefix="/question-papers", tags=["question-papers"])
 
@@ -158,13 +159,12 @@ async def download_question_paper_pdf(
     paper_dict = paper.to_dict()
     pdf_bytes = build_question_paper_pdf(paper_dict, include_answers=include_answers)
 
-    safe_title = "".join(c if c.isalnum() or c in "-_" else "_" for c in (paper.title or "paper"))
-    filename = f"{safe_title}.pdf"
-
     return StreamingResponse(
         iter([pdf_bytes]),
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": attachment_disposition(paper.title, "pdf", fallback="paper"),
+        },
     )
 
 

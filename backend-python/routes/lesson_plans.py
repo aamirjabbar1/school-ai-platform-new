@@ -12,6 +12,7 @@ from services.ai_service import generate_lesson_plan
 from services.lesson_plan_store import publish_plan_safely
 from services.pdf_service import build_lesson_plan_pdf
 from services.docx_service import build_lesson_plan_docx
+from utils.http import attachment_disposition
 
 router = APIRouter(prefix="/lesson-plans", tags=["lesson-plans"])
 
@@ -312,9 +313,10 @@ async def _get_owned_plan(plan_id: str, user: User, db: AsyncSession) -> LessonP
 
 
 def _file_response(data: bytes, title: str, ext: str, media_type: str) -> StreamingResponse:
-    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in (title or "lesson_plan"))
     return StreamingResponse(
         iter([data]),
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{safe}.{ext}"'},
+        headers={
+            "Content-Disposition": attachment_disposition(title, ext, fallback="lesson_plan"),
+        },
     )

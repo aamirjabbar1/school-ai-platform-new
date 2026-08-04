@@ -13,6 +13,7 @@ from middleware.auth import get_current_user, require_roles
 from models.models import User, Document, DocumentChunk
 from services import storage_service, vector_service
 from tasks.document_tasks import ingest_document_task
+from utils.http import attachment_disposition
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -230,10 +231,17 @@ async def download_document(
     file_bytes = await asyncio.to_thread(storage_service.download_file, doc.file_path)
     content_type = CONTENT_TYPES.get(doc.file_type, "application/octet-stream")
 
+    stem, dot, ext = (doc.file_name or "").rpartition(".")
     return StreamingResponse(
         iter([file_bytes]),
         media_type=content_type,
-        headers={"Content-Disposition": f'attachment; filename="{doc.file_name}"'},
+        headers={
+            "Content-Disposition": attachment_disposition(
+                stem if dot else (doc.file_name or doc.title),
+                (ext if dot else "") or doc.file_type or "bin",
+                fallback="document",
+            ),
+        },
     )
 
 
