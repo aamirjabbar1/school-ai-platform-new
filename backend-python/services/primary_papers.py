@@ -12,10 +12,15 @@ Grades 3-10 do not pass through here at all; `applies_to()` is the only gate,
 and the generator falls back to its existing behaviour for every other class.
 
 Approved sources (nothing else may be used):
-  * classwork recorded in an uploaded Lesson Planner
+  * classwork recorded in a Lesson Planner
   * bookwork from the approved textbook
   * end-of-chapter exercises
   * end-of-book exercises
+
+A lesson planner reaches this module by either route, and neither is preferred:
+the Lesson Plan module on the teacher dashboard, or an administrator upload to
+the Knowledge Base — a plan written by hand or in another tool counts once it
+has been filed there. The second route is open to Grades 1 and 2 only.
 """
 from __future__ import annotations
 
@@ -26,7 +31,7 @@ from datetime import date, datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.models import LessonPlan
+from models.models import Document, DocumentChunk, LessonPlan
 from services.exam_patterns import class_number
 
 logger = logging.getLogger("agent")
@@ -43,6 +48,22 @@ SOURCE_LABELS: dict[str, str] = {
     "end_of_book_exercise": "End-of-Book Exercise",
 }
 APPROVED_SOURCES = tuple(SOURCE_LABELS)
+
+# Where a lesson planner came from. Recorded on the generated paper so an
+# administrator can see which route supplied the material.
+ORIGIN_LESSON_PLAN_MODULE = "lesson_plan_module"
+ORIGIN_KNOWLEDGE_BASE = "knowledge_base"
+
+ORIGIN_LABELS: dict[str, str] = {
+    ORIGIN_LESSON_PLAN_MODULE: "generated in the Lesson Plan module",
+    ORIGIN_KNOWLEDGE_BASE: "uploaded to the Knowledge Base by the administrator",
+}
+
+# Ceilings on the uploaded planners admitted to one prompt. Uploads are whole
+# documents rather than a structured plan, so without a cap a single long file
+# could crowd out the textbook extracts.
+_MAX_UPLOADED_PLANNERS = 4
+_MAX_CHUNKS_PER_UPLOAD = 60
 
 
 def applies_to(class_name: str | None) -> bool:
@@ -104,29 +125,56 @@ async def fetch_lesson_planners(
     class_level: str,
     as_of: date | None = None,
 ) -> list[dict]:
-    """Lesson planners for this class and subject, newest first.
+    """Lesson planners for this class and subject, generated ones first.
+
+    Both routes to a planner are honoured and neither is preferred:
+
+      * a plan generated in the Lesson Plan module (`lesson_plans`)
+      * a plan an administrator uploaded to the Knowledge Base, whoever wrote it
+        and in whatever tool (`documents`, type `lesson_plan`)
+
+    The uploaded route is open to Grades 1 and 2 only — `applies_to` gates it —
+    so no other class's sourcing is affected.
 
     Planners that have not started yet are dropped outright — nothing in them
     has been taught, so nothing in them may be examined.
     """
     as_of = as_of or date.today()
 
-    result = await db.execute(
-        select(LessonPlan)
-        .where(LessonPlan.is_archived.is_(False))
-        .order_by(LessonPlan.created_at.desc())
-    )
+    # Every plan, archived included: the archived ones are excluded from the
+    # results below but still needed to recognise their Knowledge Base mirrors.
+    result = await db.execute(select(LessonPlan).order_by(LessonPlan.created_at.desc()))
     plans = list(result.scalars().all())
+
+    planners = _generated_planners(plans, subject=subject, class_level=class_level, as_of=as_of)
+
+    if applies_to(class_level):
+        planners += await _uploaded_planners(
+            db, subject=subject, class_level=class_level,
+            exclude=_mirrored_document_ids(plans),
+        )
+    return planners
+
+
+def _generated_planners(
+    plans: list[LessonPlan],
+    *,
+    subject: str,
+    class_level: str,
+    as_of: date,
+) -> list[dict]:
+    """Planners produced by the Lesson Plan module on the teacher dashboard."""
+    from services.lesson_plan_store import _flatten  # readable rendering of plan_data
 
     def matches(plan: LessonPlan) -> bool:
         same_class = (plan.class_name or "").strip().lower() == (class_level or "").strip().lower()
         same_subject = (plan.subject or "").strip().lower() == (subject or "").strip().lower()
         return same_class and same_subject
 
-    scoped = [p for p in plans if matches(p)]
-
     usable: list[dict] = []
-    for plan in scoped:
+    for plan in plans:
+        if plan.is_archived or not matches(plan):
+            continue
         status = teaching_status(plan, as_of)
         if status == "not_started":
             logger.info("[PRIMARY] skipping planner %r — starts after %s", plan.title, as_of)
@@ -140,9 +188,102 @@ async def fetch_lesson_planners(
             "start_date": plan.start_date,
             "end_date": plan.end_date,
             "status": status,
-            "plan_data": plan.plan_data or {},
+            "origin": ORIGIN_LESSON_PLAN_MODULE,
+            "text": _flatten(plan.plan_data or {}),
         })
     return usable
+
+
+def _mirrored_document_ids(plans: list[LessonPlan]) -> set[str]:
+    """Knowledge Base documents that are copies of rows in `lesson_plans`.
+
+    The Lesson Plan module mirrors every plan it generates into the Knowledge
+    Base under the same document type, so without this one plan would be offered
+    twice — once per route — and counted twice in the prompt. Archived plans are
+    matched too: a plan withdrawn from circulation must not return via its copy.
+    """
+    from services.lesson_plan_store import KB_DOCUMENT_KEY
+
+    ids = {(plan.inputs or {}).get(KB_DOCUMENT_KEY) for plan in plans}
+    return {doc_id for doc_id in ids if doc_id}
+
+
+def _upload_matches(doc: Document, *, subject: str, class_level: str) -> bool:
+    """Whether an uploaded plan belongs to this class and subject.
+
+    Classes compare by grade number, because a plan filed as "Class 1" has to be
+    found for a paper requested as "Grade 1" — both vocabularies are in use. A
+    document whose class label carries no grade ("All Classes") is rejected: a
+    Grades 1-2 paper may only be sourced from that grade's own plan.
+    """
+    grade = class_number(class_level)
+    if grade is None or class_number(doc.class_level) != grade:
+        return False
+    return (doc.subject or "").strip().lower() == (subject or "").strip().lower()
+
+
+async def _uploaded_planners(
+    db: AsyncSession,
+    *,
+    subject: str,
+    class_level: str,
+    exclude: set[str],
+) -> list[dict]:
+    """Lesson plans an administrator filed in the Knowledge Base, newest first.
+
+    Read whole from PostgreSQL rather than through semantic search: what has
+    been taught is the shape of the entire plan, not the chunks that happen to
+    match a topic query.
+
+    An upload carries no structured teaching dates, so it is reported `undated`
+    and the prompt directs the model to the plan's own week/day markers — the
+    same treatment a generated plan without dates already gets.
+    """
+    from services.lesson_plan_store import KB_DOCUMENT_TYPE
+
+    result = await db.execute(
+        select(Document)
+        .where(
+            Document.document_type == KB_DOCUMENT_TYPE,
+            Document.is_ingested.is_(True),
+        )
+        .order_by(Document.created_at.desc())
+    )
+    docs = [
+        d for d in result.scalars().all()
+        if d.id not in exclude and _upload_matches(d, subject=subject, class_level=class_level)
+    ]
+
+    planners: list[dict] = []
+    for doc in docs[:_MAX_UPLOADED_PLANNERS]:
+        chunk_rows = await db.execute(
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == doc.id)
+            .order_by(DocumentChunk.chunk_index)
+            .limit(_MAX_CHUNKS_PER_UPLOAD)
+        )
+        text = "\n\n".join(c.chunk_text for c in chunk_rows.scalars().all()).strip()
+        if not text:
+            logger.info("[PRIMARY] uploaded planner %r has no indexed text yet", doc.title)
+            continue
+        planners.append({
+            "id": doc.id,
+            "title": doc.title,
+            # An upload is a document, not one of the module's plan types.
+            "plan_type": "",
+            "book_name": doc.chapter or "",
+            "academic_session": doc.academic_year or "",
+            "start_date": None,
+            "end_date": None,
+            "status": "undated",
+            "origin": ORIGIN_KNOWLEDGE_BASE,
+            "text": text,
+        })
+
+    if planners:
+        logger.info("[PRIMARY] %d uploaded lesson planner(s) admitted for %s %s",
+                    len(planners), subject, class_level)
+    return planners
 
 
 def build_planner_context(planners: list[dict], as_of: date | None = None) -> str:
@@ -150,7 +291,6 @@ def build_planner_context(planners: list[dict], as_of: date | None = None) -> st
     if not planners:
         return ""
     as_of = as_of or date.today()
-    from services.lesson_plan_store import _flatten  # same readable rendering
 
     notes = {
         "completed": "COMPLETED — every lesson in this planner has been taught.",
@@ -166,7 +306,11 @@ def build_planner_context(planners: list[dict], as_of: date | None = None) -> st
 
     blocks = []
     for item in planners:
-        meta = [item["plan_type"].replace("_", " ").title() + " planner"]
+        # Both routes are equally valid sources, so the origin is stated as
+        # provenance only — never as a reason to trust one planner over another.
+        meta = [ORIGIN_LABELS.get(item.get("origin"), "lesson planner")]
+        if item.get("plan_type"):
+            meta.insert(0, item["plan_type"].replace("_", " ").title() + " planner")
         if item.get("book_name"):
             meta.append(f"Book: {item['book_name']}")
         if item.get("start_date") or item.get("end_date"):
@@ -175,7 +319,7 @@ def build_planner_context(planners: list[dict], as_of: date | None = None) -> st
             f'[LESSON PLANNER: "{item["title"]}" — {", ".join(meta)}]\n'
             f'[{notes[item["status"]]}]'
         )
-        blocks.append(f"{header}\n{_flatten(item['plan_data'])}")
+        blocks.append(f"{header}\n{item['text']}")
     return "\n\n---\n\n".join(blocks)
 
 
@@ -216,16 +360,63 @@ class CurriculumComplianceError(ValueError):
     """A paper could not be produced within the Grades 1-2 sourcing rules."""
 
 
-def require_planners(planners: list[dict], subject: str, class_level: str) -> None:
+async def require_planners(
+    db: AsyncSession,
+    planners: list[dict],
+    subject: str,
+    class_level: str,
+) -> None:
     """Refuse to generate at all when no planner covers this class and subject."""
     if planners:
         return
+
+    # A plan uploaded moments ago is not searchable until the ingestion worker
+    # has chunked it. Saying so beats "no lesson planner was found", which reads
+    # as though the upload never happened.
+    still_indexing = await _uploads_awaiting_ingestion(
+        db, subject=subject, class_level=class_level)
+    if still_indexing:
+        raise CurriculumComplianceError(
+            f"The lesson plan for {subject}, {class_level} is still being indexed "
+            f"({', '.join(still_indexing)}). Generation has been stopped because none of "
+            "its content is searchable yet. This usually takes a minute — try again "
+            "shortly, or check the Knowledge Base if it does not finish."
+        )
+
     raise CurriculumComplianceError(
-        f"No lesson planner has been uploaded for {subject}, {class_level}. Papers for "
-        "Grades 1 and 2 may only be built from lessons recorded as taught in a lesson "
-        "planner, so generation has been stopped. Generate or upload the lesson planner "
-        "for this class and subject, then try again."
+        f"No lesson planner was found for {subject}, {class_level}. Papers for Grades 1 "
+        "and 2 may only be built from lessons recorded as taught in a lesson planner, so "
+        "generation has been stopped. Either generate the plan in the Lesson Plan module, "
+        "or ask the administrator to upload the lesson plan for this class and subject to "
+        "the Knowledge Base, then try again."
     )
+
+
+async def _uploads_awaiting_ingestion(
+    db: AsyncSession,
+    *,
+    subject: str,
+    class_level: str,
+) -> list[str]:
+    """Titles of matching uploaded plans that have not finished ingesting.
+
+    Only consulted on the refusal path, so the successful path pays nothing.
+    """
+    if not applies_to(class_level):
+        return []
+    from services.lesson_plan_store import KB_DOCUMENT_TYPE
+
+    result = await db.execute(
+        select(Document).where(
+            Document.document_type == KB_DOCUMENT_TYPE,
+            Document.is_ingested.is_(False),
+            Document.ingestion_error.is_(None),
+        )
+    )
+    return [
+        d.title for d in result.scalars().all()
+        if _upload_matches(d, subject=subject, class_level=class_level)
+    ]
 
 
 def validate_paper(paper_data: dict, *, subject: str, class_level: str) -> list[dict]:

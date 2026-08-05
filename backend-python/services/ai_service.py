@@ -1054,11 +1054,12 @@ async def _generate_primary_paper(params: dict, db: AsyncSession) -> dict:
     topics           = params.get("topics", [])
     difficulty       = params.get("difficulty_distribution", {"easy": 30, "medium": 50, "hard": 20})
 
-    # 1. Lesson planners are mandatory — without one, nothing has been recorded
-    #    as taught and no question can be justified.
+    # 1. A lesson planner is mandatory — without one, nothing has been recorded
+    #    as taught and no question can be justified. It may equally have been
+    #    generated in the Lesson Plan module or uploaded to the Knowledge Base.
     planners = await primary_papers.fetch_lesson_planners(
         db, subject=subject, class_level=class_level)
-    primary_papers.require_planners(planners, subject, class_level)
+    await primary_papers.require_planners(db, planners, subject, class_level)
 
     # 2. Textbook / knowledge-base material behind bookwork and exercises.
     topic_query = " ".join(topics) if topics else subject
@@ -1170,7 +1171,10 @@ async def _generate_primary_paper(params: dict, db: AsyncSession) -> dict:
         "board":      exam_patterns.LSS_BOARD,
         "exam_title": exam_name,
         "sourcing_policy": "grades_1_2_lesson_planner",
-        "planners_used": [{"id": p["id"], "title": p["title"], "status": p["status"]} for p in planners],
+        "planners_used": [
+            {"id": p["id"], "title": p["title"], "status": p["status"], "origin": p["origin"]}
+            for p in planners
+        ],
     }
 
 

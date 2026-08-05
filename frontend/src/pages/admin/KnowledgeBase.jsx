@@ -22,6 +22,11 @@ const YEARS = Array.from({ length: 15 }, (_, i) => String(CURRENT_YEAR - i));
 
 const ACCEPT = '.pdf,.docx,.doc,.txt';
 
+// A lesson plan is always for one specific class — "All Classes" is meaningless
+// here, and Grades 1-2 paper generation only accepts a plan filed against its
+// own grade.
+const PLAN_CLASS_LEVELS = CLASS_LEVELS.filter((c) => c !== 'All Classes');
+
 // Literal class strings so Tailwind's static scan generates them (no runtime concatenation).
 const STAT_STYLES = {
   blue:    { wrap: 'bg-blue-100',    icon: 'text-blue-600' },
@@ -81,6 +86,7 @@ export default function KnowledgeBase() {
   const [showTypeSelect, setShowTypeSelect] = useState(false);
   const [showUpload, setShowUpload] = useState(false);       // book modal
   const [showPaperUpload, setShowPaperUpload] = useState(false); // question paper modal
+  const [showPlanUpload, setShowPlanUpload] = useState(false);   // lesson plan modal
   const [scheduleKind, setScheduleKind] = useState(null);    // 'academic_calendar' | 'official_notice' | null
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -97,6 +103,10 @@ export default function KnowledgeBase() {
   });
   const [scheduleForm, setScheduleForm] = useState({
     title: '', class_level: 'All Classes', academic_year: '', description: '', file: null,
+  });
+  const [planForm, setPlanForm] = useState({
+    title: '', subject: '', class_level: 'Class 1', academic_year: '', chapter: '',
+    description: '', file: null,
   });
 
   const loadData = async () => {
@@ -122,6 +132,7 @@ export default function KnowledgeBase() {
   const setUF = (k, v) => setUploadForm((f) => ({ ...f, [k]: v }));
   const setPF = (k, v) => setPaperForm((f) => ({ ...f, [k]: v }));
   const setSF = (k, v) => setScheduleForm((f) => ({ ...f, [k]: v }));
+  const setLF = (k, v) => setPlanForm((f) => ({ ...f, [k]: v }));
 
   const openSchedule = (kind) => {
     setShowTypeSelect(false);
@@ -192,6 +203,45 @@ export default function KnowledgeBase() {
       setSuccess(`Question paper "${paperForm.title}" uploaded. AI ingestion started...`);
       setShowPaperUpload(false);
       setPaperForm({ title: '', subject: '', class_level: 'All Classes', paper_type: 'past_paper', academic_year: String(CURRENT_YEAR), chapter: '', language: 'English', file: null });
+      setTimeout(() => { setSuccess(''); loadData(); }, 4000);
+    } catch (e) {
+      setError(e.response?.data?.detail || e.response?.data?.error || 'Upload failed');
+    } finally {
+      setUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  // ── Lesson plan upload ──────────────────────────────────────────────────────
+  //
+  // Files a plan written outside the system (by hand or in another tool) as a
+  // first-class lesson plan. Grades 1 & 2 question paper generation accepts one
+  // of these in place of a plan built in the Lesson Plan module.
+  const handlePlanUpload = async (e) => {
+    e.preventDefault();
+    if (!planForm.file || !planForm.title || !planForm.subject || !planForm.class_level) {
+      setError('Title, subject, class and a file are required');
+      return;
+    }
+    setUploading(true);
+    setUploadProgress(0);
+    setError('');
+    try {
+      const fd = new FormData();
+      fd.append('document', planForm.file);
+      fd.append('title', planForm.title);
+      fd.append('subject', planForm.subject);
+      fd.append('class_level', planForm.class_level);
+      fd.append('description', planForm.description);
+      fd.append('document_type', 'lesson_plan');
+      if (planForm.academic_year) fd.append('academic_year', planForm.academic_year);
+      if (planForm.chapter) fd.append('chapter', planForm.chapter);
+
+      const { data } = await documentAPI.upload(fd, onProgress);
+      setDocuments((prev) => [data, ...prev]);
+      setSuccess(`Lesson plan "${planForm.title}" uploaded. AI ingestion started...`);
+      setShowPlanUpload(false);
+      setPlanForm({ title: '', subject: '', class_level: 'Class 1', academic_year: '', chapter: '', description: '', file: null });
       setTimeout(() => { setSuccess(''); loadData(); }, 4000);
     } catch (e) {
       setError(e.response?.data?.detail || e.response?.data?.error || 'Upload failed');
@@ -338,7 +388,7 @@ export default function KnowledgeBase() {
       {/* Info Banner */}
       <div className="p-4 bg-blue-50 rounded-xl border border-blue-200 mb-5 text-sm text-blue-800">
         <p className="font-semibold mb-1">📚 How the Knowledge Base Works</p>
-        <p>Upload textbooks &amp; study material, past / question papers, the school <strong>Academic Calendar</strong>, and <strong>Official Notices / Emergency Updates</strong> (PDF, DOCX, TXT). The AI indexes everything automatically. The chatbot answers from this content, past papers power model papers &amp; predictions, and the Lesson Plan Generator automatically follows the Academic Calendar — with Official Notices overriding it whenever the schedule changes.</p>
+        <p>Upload textbooks &amp; study material, past / question papers, <strong>Lesson Plans</strong> prepared outside the system, the school <strong>Academic Calendar</strong>, and <strong>Official Notices / Emergency Updates</strong> (PDF, DOCX, TXT). The AI indexes everything automatically. The chatbot answers from this content, past papers power model papers &amp; predictions, an uploaded Lesson Plan lets Grade 1 &amp; Grade 2 question papers be generated from it, and the Lesson Plan Generator automatically follows the Academic Calendar — with Official Notices overriding it whenever the schedule changes.</p>
       </div>
 
       {/* Documents List */}
@@ -462,6 +512,18 @@ export default function KnowledgeBase() {
                   Question Paper / Past Papers <ChevronRight size={15} className="text-faint group-hover:text-purple-500" />
                 </div>
                 <p className="text-xs text-muted mt-1">Past, test, midterm, final &amp; MCQ papers the AI uses to generate &amp; predict.</p>
+              </button>
+              <button
+                onClick={() => { setShowTypeSelect(false); setError(''); setShowPlanUpload(true); }}
+                className="text-left p-5 rounded-xl border-2 border-line hover:border-sky-400 hover:bg-sky-50/40 transition-all group"
+              >
+                <div className="w-11 h-11 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center mb-3">
+                  <ClipboardList size={22} />
+                </div>
+                <div className="font-semibold text-ink flex items-center gap-1">
+                  Lesson Plan <ChevronRight size={15} className="text-faint group-hover:text-sky-500" />
+                </div>
+                <p className="text-xs text-muted mt-1">A lesson plan written outside the system. Grades 1 &amp; 2 question papers can be generated from it.</p>
               </button>
               {Object.entries(SCHEDULE_KINDS).map(([kind, cfg]) => {
                 const s = KIND_STYLES[cfg.color];
@@ -615,6 +677,78 @@ export default function KnowledgeBase() {
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowPaperUpload(false)} className="btn-secondary flex-1" disabled={uploading}>Cancel</button>
                 <button type="submit" disabled={uploading} className="btn-primary flex-1 flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 focus:ring-purple-500">
+                  {uploading ? <><Loader2 size={16} className="animate-spin" /> Uploading...</> : <><Upload size={16} /> Upload & Process</>}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Lesson Plan Upload Modal */}
+      {showPlanUpload && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-surface rounded-2xl shadow-xl w-full max-w-md my-4">
+            <div className="p-5 border-b flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ClipboardList size={18} className="text-sky-600" />
+                <h2 className="font-bold text-ink">Upload Lesson Plan</h2>
+              </div>
+              <button onClick={() => setShowPlanUpload(false)} className="text-faint hover:text-muted"><X size={20} /></button>
+            </div>
+            <form onSubmit={handlePlanUpload} className="p-5 space-y-4">
+              {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">{error}</div>}
+              <p className="text-xs text-muted">
+                A lesson plan prepared outside the system — handwritten, typed or made in another tool.
+                Once indexed it counts as this class&apos;s lesson planner, so Grade 1 &amp; Grade 2 question
+                papers can be generated from it without the plan being rebuilt in the Lesson Plan module.
+              </p>
+              <div>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Lesson Plan Title *</label>
+                <input type="text" value={planForm.title} onChange={(e) => setLF('title', e.target.value)} className="input-field" placeholder="e.g. Class 1 English — Term 1 Lesson Plan" required />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Subject *</label>
+                  <select value={planForm.subject} onChange={(e) => setLF('subject', e.target.value)} className="input-field" required>
+                    <option value="">Select</option>
+                    {SUBJECTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Class *</label>
+                  <select value={planForm.class_level} onChange={(e) => setLF('class_level', e.target.value)} className="input-field" required>
+                    {PLAN_CLASS_LEVELS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Session</label>
+                  <input type="text" value={planForm.academic_year} onChange={(e) => setLF('academic_year', e.target.value)} className="input-field" placeholder="e.g. 2025-2026" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-ink/90 mb-1">Book / Chapter</label>
+                  <input type="text" value={planForm.chapter} onChange={(e) => setLF('chapter', e.target.value)} className="input-field" placeholder="optional" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink/90 mb-1">Description / Notes</label>
+                <input type="text" value={planForm.description} onChange={(e) => setLF('description', e.target.value)} className="input-field" placeholder="Optional — what the plan covers" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-ink/90 mb-1">File * (PDF, DOCX, TXT)</label>
+                <input
+                  type="file"
+                  accept={ACCEPT}
+                  onChange={(e) => setLF('file', e.target.files[0])}
+                  className="w-full text-sm text-muted file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-line file:text-sm file:bg-surface-3/60 hover:file:bg-surface-3"
+                  required
+                />
+                <p className="text-xs text-faint mt-1">Max size: 50MB</p>
+              </div>
+              {uploading && <ProgressBar />}
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setShowPlanUpload(false)} className="btn-secondary flex-1" disabled={uploading}>Cancel</button>
+                <button type="submit" disabled={uploading} className="btn-primary flex-1 flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-700 focus:ring-sky-500">
                   {uploading ? <><Loader2 size={16} className="animate-spin" /> Uploading...</> : <><Upload size={16} /> Upload & Process</>}
                 </button>
               </div>
