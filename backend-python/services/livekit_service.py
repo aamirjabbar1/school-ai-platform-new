@@ -150,6 +150,33 @@ async def close_client() -> None:
 
 # ─── Room operations ──────────────────────────────────────────────────────────
 
+async def ensure_room(room: str, *, metadata: dict[str, Any] | None = None) -> None:
+    """Make sure the room exists on the media server before anyone connects.
+
+    `auto_create` is off in livekit.yaml, deliberately: a browser holding a
+    token must not be able to conjure a room of its own. The consequence is
+    that the room has to be created here first — a client connecting to a room
+    that does not exist is refused with 404 "requested room does not exist",
+    which reaches the teacher as "Could not connect to the class".
+
+    Rooms are ephemeral, so this cannot be a one-off at START CLASS: the media
+    server drops an empty room after `empty_timeout`, and a restart takes every
+    room with it. Calling this on every token issue means a class that sat empty
+    for ten minutes, or survived a media-server restart, is simply re-created
+    when the next person joins instead of being dead for its remaining hour.
+
+    CreateRoom is idempotent — an existing room is returned as-is, participants
+    undisturbed — so calling it on every join is safe. Timeouts and participant
+    limits deliberately come from livekit.yaml rather than being repeated here.
+    """
+    api = _require_sdk()
+    client = _get_client()
+    request = api.CreateRoomRequest(name=room)
+    if metadata:
+        request.metadata = json.dumps(metadata)
+    await client.room.create_room(request)
+
+
 async def list_participants(room: str) -> list[dict]:
     """Who is actually connected right now, according to the media server."""
     api = _require_sdk()

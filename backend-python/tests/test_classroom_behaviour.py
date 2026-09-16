@@ -209,3 +209,83 @@ class TestSettingsDefaults:
         from models.online_classes import OnlineClassSettings
         default = OnlineClassSettings.__table__.c.young_classes.default.arg(None)
         assert default == ["Pre-Nursery", "Nursery", "KG", "Class 1", "Class 2"]
+
+
+# ─── Reaching the media server (spec §5, §22) ─────────────────────────────────
+
+class TestRoomIsCreatedBeforeAnyoneDials:
+    """`auto_create` is off on the media server, so a browser cannot open a room
+    by connecting to it — the server must create it first. Issuing a token for a
+    room that was never created produces a valid token, a successful-looking API
+    response, and then a 404 in the browser that reads "Could not connect to the
+    class". A class can be live in the database and unreachable in practice, and
+    nothing short of dialling it would say so.
+
+    Rooms are also ephemeral: the media server drops an empty one after
+    `empty_timeout` and loses all of them on restart. So this is checked on every
+    token issue, not once at START CLASS.
+    """
+
+    @pytest.fixture
+    def issue(self, monkeypatch):
+        import asyncio
+        from routes import online_classes as oc
+
+        calls = []
+
+        async def fake_ensure_room(room, **kwargs):
+            calls.append(("ensure_room", room))
+
+        def fake_token(**kwargs):
+            calls.append(("token", kwargs["room"]))
+            return "fake-jwt"
+
+        monkeypatch.setattr(oc.lk, "ensure_room", fake_ensure_room)
+        monkeypatch.setattr(oc.lk, "create_access_token", fake_token)
+        monkeypatch.setattr(oc.lk, "public_url", lambda: "wss://media.example")
+
+        def run(session, user, role="teacher", sources=("microphone", "camera")):
+            return asyncio.run(oc._issue_token(session, user, role=role, sources=list(sources))), calls
+
+        return run
+
+    def make_user(self):
+        import types
+        return types.SimpleNamespace(id="u1", name="A Teacher", role="teacher")
+
+    def test_the_room_is_created_before_the_token_is_minted(self, issue):
+        session = make_session(room_name="lss-s1")
+        payload, calls = issue(session, self.make_user())
+        assert calls == [("ensure_room", "lss-s1"), ("token", "lss-s1")], (
+            "the room must exist before a browser is handed a token for it"
+        )
+        assert payload["token"] == "fake-jwt"
+
+    def test_a_student_join_also_ensures_the_room(self, issue):
+        """A class whose room expired while empty must heal when the next
+        student joins, not stay broken for the rest of the period."""
+        session = make_session(room_name="lss-s1")
+        _, calls = issue(session, self.make_user(), role="student", sources=())
+        assert ("ensure_room", "lss-s1") in calls
+
+    def test_no_token_is_issued_when_the_room_cannot_be_created(self, monkeypatch):
+        """Better an honest error than a token that cannot connect."""
+        import asyncio
+        from fastapi import HTTPException
+        from routes import online_classes as oc
+
+        async def boom(room, **kwargs):
+            raise oc.lk.LiveKitUnavailable("media server down")
+
+        issued = []
+        monkeypatch.setattr(oc.lk, "ensure_room", boom)
+        monkeypatch.setattr(oc.lk, "create_access_token",
+                            lambda **kw: issued.append(kw) or "should-not-happen")
+
+        import types
+        user = types.SimpleNamespace(id="u1", name="A Teacher", role="teacher")
+        with pytest.raises(HTTPException) as caught:
+            asyncio.run(oc._issue_token(make_session(room_name="lss-s1"), user,
+                                        role="teacher", sources=["microphone"]))
+        assert caught.value.status_code == 503
+        assert not issued, "a token for an unreachable room must not be handed out"

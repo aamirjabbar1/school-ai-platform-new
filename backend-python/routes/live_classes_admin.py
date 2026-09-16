@@ -211,6 +211,24 @@ async def observe_class(
         raise HTTPException(status_code=403, detail="Observation is disabled for this school.")
 
     announce = bool(settings.announce_admin_observe)
+    # Same reason as a teacher's or student's join (see lk.ensure_room): the
+    # room may not exist yet — an admin can be the first to open a live class
+    # whose participants have all dropped, and a token for a room that does not
+    # exist is refused.
+    try:
+        await lk.ensure_room(session.room_name, metadata={
+            "session_id": session.id,
+            "class_name": session.class_name,
+            "section": session.section,
+            "subject": session.subject,
+        })
+    except Exception as exc:
+        logger.error("[LIVE CLASSES] could not open room %s: %s", session.room_name, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="The classroom could not be opened. Please try again in a moment.",
+        )
+
     token = lk.create_access_token(
         identity=user.id,
         display_name=f"{user.name} (Administrator)",

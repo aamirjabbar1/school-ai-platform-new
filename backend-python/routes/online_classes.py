@@ -144,6 +144,29 @@ async def _issue_token(
     sources: list[str],
 ) -> dict:
     """Build the join payload a browser needs — and nothing more."""
+    # The room must exist before the browser dials it; see lk.ensure_room. A
+    # token for a room that was never created is refused with a 404 the user
+    # reads as "Could not connect to the class", so a failure here has to stop
+    # the join rather than hand out a token that cannot work.
+    try:
+        await lk.ensure_room(session.room_name, metadata={
+            "session_id": session.id,
+            "class_name": session.class_name,
+            "section": session.section,
+            "subject": session.subject,
+        })
+    except lk.LiveKitUnavailable:
+        raise HTTPException(
+            status_code=503,
+            detail="The class server is unavailable right now. Please try again in a moment.",
+        )
+    except Exception as exc:
+        logger.error("[ONLINE CLASS] could not create room %s: %s", session.room_name, exc)
+        raise HTTPException(
+            status_code=503,
+            detail="The classroom could not be opened. Please try again in a moment.",
+        )
+
     token = lk.create_access_token(
         identity=user.id,
         display_name=user.name,
