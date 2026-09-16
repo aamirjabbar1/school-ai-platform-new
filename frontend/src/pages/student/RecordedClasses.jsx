@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Layout from '../../components/Layout';
 import { API_ORIGIN, onlineClassAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 import { Play, Video, X, CalendarDays } from 'lucide-react';
 
 // RECORDED CLASSES (spec §15). A student sees only the recordings of their own
@@ -27,7 +28,7 @@ export default function RecordedClasses() {
       setStreamUrl(`${API_ORIGIN}${data.url}?rt=${encodeURIComponent(data.token)}`);
       setPlaying(recording);
     } catch (err) {
-      setError(err?.response?.data?.detail || 'This recording cannot be played right now.');
+      setError(apiError(err, 'This recording cannot be played right now.'));
     }
   };
 

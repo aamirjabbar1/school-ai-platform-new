@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import Layout from '../../components/Layout';
 import { useAuth } from '../../context/AuthContext';
 import { onlineClassAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 import { classesFor, sectionsFor, subjectsFor } from '../../constants/academics';
 import {
   Radio, Video, Users, Clock, AlertCircle, ArrowRight, CalendarClock, CalendarPlus, X,
@@ -61,7 +62,7 @@ export default function TeacherOnlineClasses() {
       const { data } = await onlineClassAPI.startScheduled(session.id);
       navigate(`/teacher/classroom/${data.session.id}`);
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Could not start that class.');
+      setError(apiError(err, 'Could not start that class.'));
     }
   };
 
@@ -77,7 +78,7 @@ export default function TeacherOnlineClasses() {
       });
       navigate(`/teacher/classroom/${data.session.id}`);
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Could not start the class. Please try again.');
+      setError(apiError(err, 'Could not start the class. Please try again.'));
       setStarting(false);
     }
   };
@@ -324,7 +325,7 @@ function ScheduleDialog({ open, onClose, onSaved, classes, subjects, sectionsFor
       });
       onSaved();
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Could not save this timetable entry.');
+      setError(apiError(err, 'Could not save this timetable entry.'));
     } finally {
       setSaving(false);
     }

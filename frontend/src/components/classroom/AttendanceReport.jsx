@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { onlineClassAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 import { CheckCircle2, Download } from 'lucide-react';
 
 // The register, as it was actually recorded: joined, rejoined, minutes, status.
@@ -13,7 +14,7 @@ export default function AttendanceReport({ sessionId, onBack, ended }) {
   useEffect(() => {
     onlineClassAPI.attendance(sessionId)
       .then(({ data: payload }) => setData(payload))
-      .catch((err) => setError(err?.response?.data?.detail || 'Could not load attendance.'));
+      .catch((err) => setError(apiError(err, 'Could not load attendance.')));
   }, [sessionId]);
 
   const statusTone = {

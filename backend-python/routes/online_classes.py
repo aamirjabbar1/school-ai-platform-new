@@ -14,9 +14,15 @@ API, which checks who they are before acting on the room.
 Not in this module, deliberately: any call to an AI provider, and any handling
 of classroom audio. Starting, joining, muting and attendance are ordinary
 application logic and consume zero AI tokens (spec §19A).
-"""
-from __future__ import annotations
 
+No `from __future__ import annotations` here, and it must not be added back:
+the rate limiter wraps these endpoints with `functools.wraps`, which cannot
+carry `__globals__` across. String annotations would then be resolved by
+FastAPI inside *slowapi's* namespace, where `StartClassRequest` does not
+exist — and an unresolvable body model is silently demoted to a query
+parameter, so every POST fails validation with 422. See
+`tests/test_route_wiring.py`, which fails if that ever comes back.
+"""
 import logging
 from datetime import timedelta
 

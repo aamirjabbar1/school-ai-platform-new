@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import Layout from '../../components/Layout';
 import StatCard from '../../components/StatCard';
 import { liveClassAdminAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 import {
   Radio, Users, GraduationCap, Eye, PhoneOff, Clock, Video, AlertTriangle,
   ScrollText, BarChart3, Settings as SettingsIcon, RefreshCw, Sparkles,
@@ -114,7 +115,7 @@ function LiveTab({ classes, onChanged }) {
       );
       window.open(`/admin/observe/${session.id}`, '_blank', 'noopener');
     } catch (err) {
-      setNotice(err?.response?.data?.detail || 'Could not open that class.');
+      setNotice(apiError(err, 'Could not open that class.'));
     } finally {
       setBusy('');
     }

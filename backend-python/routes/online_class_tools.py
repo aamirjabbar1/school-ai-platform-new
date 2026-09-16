@@ -10,9 +10,10 @@ that could never carry video of a document.
 Along the way the module records what was actually shown — which book, which
 pages, which board — because that structured record is what lesson records and
 (later) AI summaries are built from. Nothing here is inferred from speech.
-"""
-from __future__ import annotations
 
+Deliberately no `from __future__ import annotations` — see the note in
+`routes/online_classes.py`: it breaks rate-limited endpoints that take a body.
+"""
 import asyncio
 import base64
 import binascii

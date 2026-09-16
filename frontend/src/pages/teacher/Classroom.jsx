@@ -8,6 +8,7 @@ import Stage from '../../components/classroom/Stage';
 import ResourcePicker from '../../components/classroom/ResourcePicker';
 import AttendanceReport from '../../components/classroom/AttendanceReport';
 import { onlineClassAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 import {
   Mic, MicOff, Video, VideoOff, Users, PhoneOff, Hand, VolumeX, UserMinus,
   Lock, Unlock, X, Loader2, PenLine, BookOpen, MonitorUp, Camera, Presentation, Circle,
@@ -109,7 +110,7 @@ export default function TeacherClassroom() {
       }
       await refreshState();
     } catch (err) {
-      setNotice(err?.response?.data?.detail || 'Recording could not be changed.');
+      setNotice(apiError(err, 'Recording could not be changed.'));
     } finally {
       setBusy('');
     }

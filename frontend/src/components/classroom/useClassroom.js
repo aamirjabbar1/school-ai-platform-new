@@ -3,6 +3,7 @@ import {
   Room, RoomEvent, Track, VideoPresets, DisconnectReason, createLocalVideoTrack,
 } from 'livekit-client';
 import { liveClassAdminAPI, onlineClassAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 
 // ─── Live classroom connection ────────────────────────────────────────────────
 //
@@ -292,7 +293,7 @@ export default function useClassroom({ sessionId, role }) {
         setResourceToken(rt.token);
       } catch { /* books simply will not open until the next refresh */ }
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Could not connect to the class.');
+      setError(apiError(err, 'Could not connect to the class.'));
       setStatus('error');
     }
   }, [sessionId, isTeacher, handleMessage, refreshState, loadSnapshot]);

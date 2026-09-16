@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import Markdown from '../../components/Markdown';
 import { onlineClassAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 import { Sparkles, Send, Loader2, BookOpen, MessageSquare, FileText } from 'lucide-react';
 
 // After a class: what was covered, plus ASK LSS AI ABOUT THIS CLASS (spec §19).
@@ -53,8 +54,7 @@ export default function ClassSummary() {
         i === prev.length - 1 ? { ...item, answer: data.answer, sources: data.sources } : item
       )));
     } catch (err) {
-      const detail = err?.response?.data?.detail
-        || 'LSS AI cannot answer right now. Please try again later.';
+      const detail = apiError(err, 'LSS AI cannot answer right now. Please try again later.');
       setThread((prev) => prev.slice(0, -1));
       setError(detail);
       setQuestion(text);
@@ -70,7 +70,7 @@ export default function ClassSummary() {
       const { data } = await onlineClassAPI.revisionNotes(sessionId);
       setNotes(data.content);
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Revision notes are not available right now.');
+      setError(apiError(err, 'Revision notes are not available right now.'));
     } finally {
       setLoadingNotes(false);
     }

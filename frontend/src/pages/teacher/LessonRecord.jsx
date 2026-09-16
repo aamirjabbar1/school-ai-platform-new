@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Layout from '../../components/Layout';
 import Markdown from '../../components/Markdown';
 import { onlineClassAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 import {
   CheckCircle2, Sparkles, Loader2, BookOpen, ClipboardList, Send, Wand2, AlertCircle,
 } from 'lucide-react';
@@ -61,7 +62,7 @@ export default function LessonRecord() {
       setData((prev) => ({ ...prev, record }));
       setNotice(confirm ? 'Lesson record confirmed.' : 'Saved.');
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Could not save the record.');
+      setError(apiError(err, 'Could not save the record.'));
     } finally {
       setBusy('');
     }
@@ -76,8 +77,7 @@ export default function LessonRecord() {
       const { data: payload } = await fn();
       onDone(payload);
     } catch (err) {
-      setError(err?.response?.data?.detail
-        || 'LSS AI is not available right now. Your lesson record is unaffected.');
+      setError(apiError(err, 'LSS AI is not available right now. Your lesson record is unaffected.'));
     } finally {
       setBusy('');
     }
@@ -94,7 +94,7 @@ export default function LessonRecord() {
       });
       setNotice('Homework published to students.');
     } catch (err) {
-      setError(err?.response?.data?.detail || 'Could not publish homework.');
+      setError(apiError(err, 'Could not publish homework.'));
     } finally {
       setBusy('');
     }

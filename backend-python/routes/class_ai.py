@@ -18,9 +18,10 @@ All of it is text-to-text. Classroom audio is never read, transcribed or sent
 anywhere, and every prompt says so, so no answer can pretend to have overheard
 the lesson. If AI is unavailable, disabled or over budget, these endpoints
 return a plain message and the classroom is unaffected.
-"""
-from __future__ import annotations
 
+Deliberately no `from __future__ import annotations` — see the note in
+`routes/online_classes.py`: it breaks rate-limited endpoints that take a body.
+"""
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request

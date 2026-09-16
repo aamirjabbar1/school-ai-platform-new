@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { onlineClassAPI } from '../../services/api';
+import { apiError } from '../../services/apiError';
 import { BookOpen, Search, X, Loader2, FileText, Image as ImageIcon, Presentation } from 'lucide-react';
 
 // OPEN BOOK — pick from what the Knowledge Base already holds for this class.
@@ -47,7 +48,7 @@ export default function ResourcePicker({ sessionId, subject, open, onClose, onPr
       }
       onClose();
     } catch (err) {
-      setError(err?.response?.data?.detail || 'This document could not be opened.');
+      setError(apiError(err, 'This document could not be opened.'));
     } finally {
       setOpening('');
     }
