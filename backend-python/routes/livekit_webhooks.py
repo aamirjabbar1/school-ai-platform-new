@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
 from models.models import utcnow
-from models.online_classes import SESSION_ENDED, SESSION_LIVE, OnlineClassSession
+from models.online_classes import SESSION_LIVE, OnlineClassSession
 from services import attendance_service, class_events, classroom_state
 from services import livekit_service as lk
 
@@ -139,19 +139,28 @@ async def livekit_webhook(
         return {"handled": True}
 
     if event == "room_finished":
-        if session.status == SESSION_LIVE:
-            # The room ended without anyone pressing End Class (server restart,
-            # last participant gone). Close the register so the class is not
-            # left hanging in a live state forever.
-            session.status = SESSION_ENDED
-            session.actual_end = at
-            session.end_reason = session.end_reason or "room_finished"
+        # The room emptied. That is not the same as the lesson being over, and
+        # ending the class here contradicted the grace period `participant_left`
+        # had just started two events earlier.
+        #
+        # Rooms are ephemeral: one disappears when the last person drops, after
+        # the empty timeout, or when the media server restarts. A teacher whose
+        # connection blinked for ten seconds came back to a class that had been
+        # ended underneath them, a register finalised mid-lesson, and a rejoin
+        # refused with "This class is not live" — while the room itself would
+        # have been re-created by the next join anyway (see lk.ensure_room).
+        #
+        # So the class stays live and the clock decides. A teacher who never
+        # comes back is closed after the grace period by `_close_if_abandoned`
+        # on the next read, or by the `close_abandoned_classes` beat sweep —
+        # which is also what stops a class hanging in a live state forever.
+        if session.status == SESSION_LIVE and not session.teacher_disconnected_at:
+            session.teacher_disconnected_at = at
             await class_events.record(
-                db, session.id, class_events.CLASS_ENDED,
+                db, session.id, class_events.TEACHER_DISCONNECTED,
                 actor_role="system", payload={"reason": "room_finished"},
             )
-            await attendance_service.finalize_session(db, session)
-            await classroom_state.clear_session(session.id)
+            await db.commit()
         return {"handled": True}
 
     return {"handled": False, "event": event}

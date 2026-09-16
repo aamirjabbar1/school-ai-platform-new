@@ -333,3 +333,82 @@ class TestAbandonedClassesAreClosed:
         from tasks.online_class_tasks import is_overrun
         assert is_overrun(self.session_started(100, planned=90), self.now()) is False
         assert is_overrun(self.session_started(125, planned=90), self.now()) is True
+
+
+# ─── A room going empty is not a lesson ending (spec §22) ─────────────────────
+
+class TestRoomFinishedDoesNotEndTheLesson:
+    """The media server's rooms are ephemeral — one disappears when the last
+    person drops, after the empty timeout, or on a restart. Treating that as the
+    end of the lesson ended classes underneath teachers whose connection blinked,
+    finalised registers mid-lesson, and refused the rejoin with "This class is
+    not live" — for a room that the next join would simply re-create.
+
+    Closure belongs to the grace clock, not to the room's existence.
+    """
+
+    def fire(self, monkeypatch, session, event="room_finished"):
+        import asyncio
+        import types
+        from routes import livekit_webhooks as wh
+
+        async def noop(*args, **kwargs):
+            return None
+
+        async def body():
+            return b"{}"
+
+        async def session_for_room(db, room):
+            return session
+
+        payload = {"event": event, "room": {"name": session.room_name}}
+        monkeypatch.setattr(wh.lk, "verify_webhook", lambda b, a: payload)
+        monkeypatch.setattr(wh, "_session_for_room", session_for_room)
+        monkeypatch.setattr(wh.class_events, "record", noop)
+        monkeypatch.setattr(wh.attendance_service, "finalize_session", noop)
+        monkeypatch.setattr(wh.classroom_state, "clear_session", noop)
+
+        request = types.SimpleNamespace(body=body)
+        db = types.SimpleNamespace(commit=noop)
+        return asyncio.run(wh.livekit_webhook(request, None, db))
+
+    def live_session(self):
+        from models.online_classes import SESSION_LIVE
+        session = make_session(room_name="lss-s1")
+        session.status = SESSION_LIVE
+        session.teacher_disconnected_at = None
+        return session
+
+    def test_the_class_stays_live(self, monkeypatch):
+        from models.online_classes import SESSION_LIVE
+        session = self.live_session()
+        self.fire(monkeypatch, session)
+        assert session.status == SESSION_LIVE, (
+            "a teacher whose connection dropped must be able to rejoin the same lesson"
+        )
+
+    def test_the_grace_clock_starts(self, monkeypatch):
+        """Still live, but counting: a teacher who never returns is closed by
+        the grace rules rather than left hanging forever."""
+        session = self.live_session()
+        self.fire(monkeypatch, session)
+        assert session.teacher_disconnected_at is not None
+
+    def test_a_repeated_event_does_not_restart_the_clock(self, monkeypatch):
+        """Otherwise a room that finishes every few minutes would postpone the
+        grace period indefinitely and the class really would hang."""
+        session = self.live_session()
+        self.fire(monkeypatch, session)
+        first = session.teacher_disconnected_at
+        self.fire(monkeypatch, session)
+        assert session.teacher_disconnected_at == first
+
+    def test_a_class_the_teacher_ended_is_left_alone(self, monkeypatch):
+        """End Class tears the room down, which fires this event right back."""
+        from models.online_classes import SESSION_ENDED
+        session = self.live_session()
+        session.status = SESSION_ENDED
+        session.end_reason = "teacher"
+        self.fire(monkeypatch, session)
+        assert session.status == SESSION_ENDED
+        assert session.end_reason == "teacher"
