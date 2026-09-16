@@ -30,8 +30,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from utils.password import hash_password
 from sqlalchemy import select
@@ -49,11 +48,20 @@ from routes.lesson_plans import router as lesson_plans_router
 from routes.admin import router as admin_router
 from routes.oversight import router as oversight_router
 from routes.notifications import router as notifications_router
+from routes.online_classes import router as online_classes_router
+from routes.online_class_tools import router as online_class_tools_router
+from routes.class_recordings import router as class_recordings_router
+from routes.class_ai import router as class_ai_router
+from routes.class_schedules import router as class_schedules_router
+from routes.live_classes_admin import router as live_classes_admin_router
+from routes.livekit_webhooks import router as livekit_webhook_router
 
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
+# Defined in middleware/rate_limit.py so route modules can apply limits without
+# importing this module (which imports them).
 
-limiter = Limiter(key_func=get_remote_address)
+from middleware.rate_limit import limiter  # noqa: E402
 
 
 # ─── Default admin ────────────────────────────────────────────────────────────
@@ -105,6 +113,10 @@ async def lifespan(app: FastAPI):
     print(f"{'='*50}\n")
 
     yield
+
+    # Release the media server's HTTP session on shutdown.
+    from services import livekit_service
+    await livekit_service.close_client()
 
 
 # ─── App ──────────────────────────────────────────────────────────────────────
@@ -161,6 +173,14 @@ app.include_router(lesson_plans_router,  prefix="/api")
 app.include_router(admin_router,         prefix="/api")
 app.include_router(oversight_router,     prefix="/api")
 app.include_router(notifications_router, prefix="/api")
+app.include_router(online_classes_router, prefix="/api")
+app.include_router(online_class_tools_router, prefix="/api")
+app.include_router(class_recordings_router, prefix="/api")
+app.include_router(class_ai_router, prefix="/api")
+app.include_router(class_schedules_router, prefix="/api")
+app.include_router(live_classes_admin_router, prefix="/api")
+# Called by the LiveKit media server, not by a user: authenticated by signature.
+app.include_router(livekit_webhook_router, prefix="/api")
 
 
 @app.get("/")

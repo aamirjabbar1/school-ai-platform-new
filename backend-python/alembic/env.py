@@ -16,6 +16,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env", override=True)
 
 # ─── Import models so autogenerate can detect schema changes ──────────────────
 from models.models import Base  # noqa: F401  (imports all mapped classes)
+from models import online_classes  # noqa: F401  (Online Classes module tables)
 
 # ─── Alembic config ───────────────────────────────────────────────────────────
 config = context.config

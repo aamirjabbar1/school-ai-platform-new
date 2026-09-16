@@ -32,11 +32,17 @@ def ensure_bucket(bucket: str = MINIO_BUCKET) -> None:
         client.make_bucket(bucket)
 
 
-def upload_file(object_name: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+def upload_file(
+    object_name: str,
+    data: bytes,
+    content_type: str = "application/octet-stream",
+    bucket: str | None = None,
+) -> None:
     client = get_client()
-    ensure_bucket()
+    target = bucket or MINIO_BUCKET
+    ensure_bucket(target)
     client.put_object(
-        MINIO_BUCKET,
+        target,
         object_name,
         io.BytesIO(data),
         length=len(data),
@@ -44,9 +50,9 @@ def upload_file(object_name: str, data: bytes, content_type: str = "application/
     )
 
 
-def download_file(object_name: str) -> bytes:
+def download_file(object_name: str, bucket: str | None = None) -> bytes:
     client = get_client()
-    response = client.get_object(MINIO_BUCKET, object_name)
+    response = client.get_object(bucket or MINIO_BUCKET, object_name)
     try:
         return response.read()
     finally:
@@ -54,20 +60,38 @@ def download_file(object_name: str) -> bytes:
         response.release_conn()
 
 
-def delete_file(object_name: str) -> None:
+def delete_file(object_name: str, bucket: str | None = None) -> None:
     try:
-        get_client().remove_object(MINIO_BUCKET, object_name)
+        get_client().remove_object(bucket or MINIO_BUCKET, object_name)
     except S3Error:
         pass
 
 
-def get_presigned_url(object_name: str, expires_seconds: int = 3600) -> str:
+def get_presigned_url(object_name: str, expires_seconds: int = 3600, bucket: str | None = None) -> str:
     from datetime import timedelta
     return get_client().presigned_get_object(
-        MINIO_BUCKET,
+        bucket or MINIO_BUCKET,
         object_name,
         expires=timedelta(seconds=expires_seconds),
     )
+
+
+def stat_object(object_name: str, bucket: str | None = None):
+    """Object metadata (size, content type). Raises if it does not exist."""
+    return get_client().stat_object(bucket or MINIO_BUCKET, object_name)
+
+
+def read_range(object_name: str, offset: int, length: int, bucket: str | None = None) -> bytes:
+    """Byte-range read — how a browser seeks inside a recording or a textbook
+    without downloading the whole file first."""
+    response = get_client().get_object(
+        bucket or MINIO_BUCKET, object_name, offset=offset, length=length
+    )
+    try:
+        return response.read()
+    finally:
+        response.close()
+        response.release_conn()
 
 
 def make_object_name(document_id: str, safe_filename: str) -> str:

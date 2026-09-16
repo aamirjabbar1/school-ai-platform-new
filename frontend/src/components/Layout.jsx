@@ -7,7 +7,7 @@ import ThemeToggle from './ThemeToggle';
 import {
   LayoutDashboard, MessageSquare, BookOpen, FileText, Users,
   Database, LogOut, Menu, X, ClipboardList, Sparkles, GraduationCap, FileSpreadsheet,
-  CalendarRange, ClipboardCheck,
+  CalendarRange, ClipboardCheck, Video, Radio, PlaySquare,
 } from 'lucide-react';
 
 const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
@@ -15,13 +15,16 @@ const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
 const navConfig = {
   student: [
     { path: '/student/dashboard',      icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/student/online-classes', icon: Video,           label: "Today's Classes" },
     { path: '/student/chat',           icon: MessageSquare,   label: 'AI Chatbot' },
     { path: '/student/assignments',    icon: BookOpen,        label: 'Assignments' },
+    { path: '/student/recorded-classes', icon: PlaySquare,   label: 'Recorded Classes' },
     { path: '/student/question-papers', icon: FileText,       label: 'Question Papers' },
     { path: '/student/practice',       icon: ClipboardList,   label: 'Practice & Self-Test' },
   ],
   teacher: [
     { path: '/teacher/dashboard',          icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/teacher/online-classes',     icon: Video,           label: 'Online Classes' },
     { path: '/teacher/chat',               icon: MessageSquare,   label: 'AI Assistant' },
     { path: '/teacher/assignments/create', icon: ClipboardList,   label: 'Create Assignment' },
     { path: '/teacher/assignments',        icon: BookOpen,        label: 'Review & Grade' },
@@ -30,6 +33,7 @@ const navConfig = {
   ],
   admin: [
     { path: '/admin/dashboard',     icon: LayoutDashboard, label: 'Dashboard' },
+    { path: '/admin/live-classes',  icon: Radio,           label: 'Live Classes' },
     { path: '/admin/users',         icon: Users,           label: 'Manage Users' },
     { path: '/admin/import-students', icon: FileSpreadsheet, label: 'Bulk Import' },
     { path: '/admin/knowledge-base',icon: Database,        label: 'Knowledge Base' },

@@ -63,6 +63,12 @@ reportlab==4.2.5
 arabic-reshaper==3.0.1
 python-bidi==0.6.11
 
+# ─── Online Classes (LiveKit media server) ────────────────────────────────────
+# Server SDK only: mints join tokens and drives room control from the backend.
+# Media never passes through this process — the browser talks to the SFU
+# directly — so no codec or transcription dependency is involved.
+livekit-api>=0.8.0,<2.0.0
+
 # ─── API extras ───────────────────────────────────────────────────────────────
 slowapi==0.1.9
 sse-starlette==2.2.1

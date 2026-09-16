@@ -17,7 +17,11 @@ from utils.http import attachment_disposition
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
-ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "txt", "inp"}
+# Slide decks and images are accepted so a teacher can present material that
+# was never a PDF. They are not text-extracted on upload: a deck is indexed
+# after the classroom converts it to PDF, and an image has no text to index.
+PRESENTATION_ONLY_EXTENSIONS = {"pptx", "ppt", "odp", "png", "jpg", "jpeg"}
+ALLOWED_EXTENSIONS = {"pdf", "docx", "doc", "txt", "inp"} | PRESENTATION_ONLY_EXTENSIONS
 
 CONTENT_TYPES = {
     "pdf":  "application/pdf",
@@ -25,6 +29,12 @@ CONTENT_TYPES = {
     "doc":  "application/msword",
     "txt":  "text/plain",
     "inp":  "application/octet-stream",
+    "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "ppt":  "application/vnd.ms-powerpoint",
+    "odp":  "application/vnd.oasis.opendocument.presentation",
+    "png":  "image/png",
+    "jpg":  "image/jpeg",
+    "jpeg": "image/jpeg",
 }
 
 # ─── Auto-detection helpers ───────────────────────────────────────────────────
@@ -200,11 +210,19 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
 
-    # Dispatch ingestion to Celery worker (non-blocking)
-    ingest_document_task.delay(doc.id)
+    # Dispatch ingestion to Celery worker (non-blocking). Slide decks and images
+    # are skipped: a deck is indexed once the classroom converts it to a PDF,
+    # and running text extraction over either would only record a failure.
+    presentation_only = ext in PRESENTATION_ONLY_EXTENSIONS
+    if not presentation_only:
+        ingest_document_task.delay(doc.id)
 
     resp = doc.to_dict()
-    resp["message"] = "Document uploaded. Ingestion queued in background worker."
+    resp["message"] = (
+        "Document uploaded. Available for class presentation."
+        if presentation_only
+        else "Document uploaded. Ingestion queued in background worker."
+    )
     resp["auto_detected"] = {
         "title":         not (title or "").strip(),
         "subject":       not (subject or "").strip(),
