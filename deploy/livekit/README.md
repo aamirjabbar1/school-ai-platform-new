@@ -13,7 +13,8 @@ at all without TURN on 443, so this is about whether classes work, not tidiness.
 
 ## 1. Provision
 
-- Hetzner **CCX23** (4 dedicated vCPU, 16 GB RAM, 20 TB traffic), Ubuntu 24.04
+- Hetzner **CPX32** (4 shared vCPU, 8 GB RAM, 160 GB disk), Ubuntu 24.04, Nuremberg
+  — see the sizing note in docs/ONLINE_CLASSES_ARCHITECTURE.md §8 before changing this
 - DNS, both pointing at the new host's IPv4 (and AAAA if you use IPv6):
   - `live.lssbot.net` — signalling
   - `turn.lssbot.net` — TURN relay (shares port 443, routed by SNI)
