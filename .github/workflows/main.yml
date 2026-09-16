@@ -28,11 +28,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ── 2. Write root .env (backend_variables) ───────────────────────────────
+      # ── 2. Write root .env (BACKEND_VARIABLES secret) ─────────────────────────
+      # A secret, not a variable: this value carries the database password, the
+      # JWT secret and the AI API keys, and GitHub masks secrets in workflow
+      # logs. Variables are printed verbatim — on a public repository that is
+      # one careless `echo` away from publishing production credentials.
       - name: Write root .env
         run: |
           cat > .env << 'EOF'
-          ${{ vars.backend_variables }}
+          ${{ secrets.BACKEND_VARIABLES }}
           EOF
 
       # ── 3. Write frontend/.env (frontend_variables) ──────────────────────────
@@ -47,7 +51,7 @@ jobs:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
-          BACKEND_VARS: ${{ vars.backend_variables }}
+          BACKEND_VARS: ${{ secrets.BACKEND_VARIABLES }}
           FRONTEND_VARS: ${{ vars.frontend_variables }}
         with:
           host: 167.235.202.139
@@ -67,11 +71,11 @@ jobs:
             git pull origin main
 
             echo "==> Writing root .env"
-            printf '%s' "$BACKEND_VARS" > .env
+            printf '%s\n' "$BACKEND_VARS" > .env
 
             echo "==> Writing frontend/.env"
             mkdir -p frontend
-            printf '%s' "$FRONTEND_VARS" > frontend/.env
+            printf '%s\n' "$FRONTEND_VARS" > frontend/.env
 
             echo "==> Running docker compose"
             docker compose pull --quiet || true
