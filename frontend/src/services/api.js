@@ -2,6 +2,11 @@ import axios from 'axios';
 
 const API_BASE = 'https://api.lssbot.net/api';
 
+// Exported for the few places a browser fetches a URL itself — a PDF viewer
+// loading a textbook, a video element playing a recording — where axios (and
+// therefore our Authorization header) is not in the loop.
+export const API_ORIGIN = API_BASE;
+
 const api = axios.create({
   baseURL: API_BASE,
   timeout: 60000,
@@ -182,6 +187,90 @@ export const adminAPI = {
   getImportBatch: (id) => api.get(`/admin/students/import-batches/${id}`),
   downloadImportCredentials: (id) => api.get(`/admin/students/import-batches/${id}/credentials`, { responseType: 'blob' }),
   rollbackImport: (id) => api.post(`/admin/students/import-batches/${id}/rollback`),
+};
+
+// ─── ONLINE CLASSES ───────────────────────────────────────────────────────────
+// The classroom never asks anyone for a meeting ID, link or password: the
+// server decides which room a user belongs in and mints a short-lived token.
+export const onlineClassAPI = {
+  // Teacher
+  start: (data) => api.post('/online-classes/start', data),
+  teacherSessions: () => api.get('/online-classes/teacher/sessions'),
+  end: (id) => api.post(`/online-classes/${id}/end`),
+  attendance: (id) => api.get(`/online-classes/${id}/attendance`),
+  muteAll: (id) => api.post(`/online-classes/${id}/controls/mute-all`),
+  muteStudent: (id, user_id) => api.post(`/online-classes/${id}/controls/mute`, { user_id }),
+  setPermissions: (id, data) => api.post(`/online-classes/${id}/controls/permissions`, data),
+  lockClass: (id, locked) => api.post(`/online-classes/${id}/controls/lock`, { locked }),
+  lockCameras: (id, locked) => api.post(`/online-classes/${id}/controls/cameras`, { locked }),
+  removeStudent: (id, user_id) => api.post(`/online-classes/${id}/controls/remove`, { user_id }),
+  lowerHand: (id, user_id) => api.post(`/online-classes/${id}/controls/hand`, { user_id }),
+
+  // Student
+  today: () => api.get('/online-classes/student/today'),
+
+  // Shared
+  join: (id) => api.post(`/online-classes/${id}/join`),
+  leave: (id) => api.post(`/online-classes/${id}/leave`),
+  raiseHand: (id, raised) => api.post(`/online-classes/${id}/hand`, { raised }),
+  state: (id) => api.get(`/online-classes/${id}/state`),
+
+  // Teaching tools (Phase 2)
+  setStage: (id, data) => api.post(`/online-classes/${id}/stage`, data),
+  resources: (id, params) => api.get(`/online-classes/${id}/resources`, { params }),
+  present: (id, data) => api.post(`/online-classes/${id}/present`, data),
+  presentPage: (id, data) => api.post(`/online-classes/${id}/page`, data),
+  conversionStatus: (id, documentId) =>
+    api.get(`/online-classes/${id}/resources/${documentId}/status`),
+  resourceToken: (id) => api.get(`/online-classes/${id}/resource-token`),
+  share: (id, data) => api.post(`/online-classes/${id}/share`, data),
+  saveBoardSnapshot: (id, data) => api.post(`/online-classes/${id}/whiteboard/snapshot`, data),
+  boardSnapshot: (id) => api.get(`/online-classes/${id}/whiteboard/snapshot`),
+  saveWhiteboard: (id, data) => api.post(`/online-classes/${id}/whiteboard/save`, data),
+  whiteboards: (id) => api.get(`/online-classes/${id}/whiteboard`),
+
+  // Recording (Phase 3)
+  startRecording: (id) => api.post(`/online-classes/${id}/recording/start`),
+  stopRecording: (id) => api.post(`/online-classes/${id}/recording/stop`),
+  recordings: () => api.get('/online-classes/recordings'),
+  recordingToken: (recordingId) => api.get(`/online-classes/recordings/${recordingId}/token`),
+
+  // Scheduling (Phase 3)
+  schedules: () => api.get('/online-classes/schedules'),
+  createSchedule: (data) => api.post('/online-classes/schedules', data),
+  deleteSchedule: (id) => api.delete(`/online-classes/schedules/${id}`),
+  upcoming: () => api.get('/online-classes/upcoming'),
+  startScheduled: (sessionId) => api.post(`/online-classes/schedules/${sessionId}/start`),
+
+  // Lesson record + AI (Phase 4). AI calls take longer than a classroom action,
+  // so they get their own timeout; none of them are required for a class to run.
+  lessonRecord: (id) => api.get(`/online-classes/${id}/lesson-record`),
+  saveLessonRecord: (id, data) => api.put(`/online-classes/${id}/lesson-record`, data),
+  lessonPlans: (id) => api.get(`/online-classes/${id}/lesson-plans`),
+  linkLessonPlan: (id, data) => api.post(`/online-classes/${id}/lesson-plan`, data),
+  summary: (id) => api.get(`/online-classes/${id}/summary`),
+  generateSummary: (id) => api.post(`/online-classes/${id}/ai/summary`, {}, { timeout: 180000 }),
+  coverage: (id) => api.post(`/online-classes/${id}/ai/coverage`, {}, { timeout: 180000 }),
+  revisionNotes: (id) => api.post(`/online-classes/${id}/ai/revision-notes`, {}, { timeout: 180000 }),
+  ask: (id, question) => api.post(`/online-classes/${id}/ask`, { question }, { timeout: 180000 }),
+  askHistory: (id) => api.get(`/online-classes/${id}/ask/history`),
+  assistant: (id, data) => api.post(`/online-classes/${id}/ai/assistant`, data, { timeout: 180000 }),
+  publishHomework: (id, data) => api.post(`/online-classes/${id}/homework/publish`, data),
+};
+
+// ─── ADMIN — LIVE CLASSES CONTROL ROOM ────────────────────────────────────────
+export const liveClassAdminAPI = {
+  overview: () => api.get('/admin/live-classes'),
+  history: (params) => api.get('/admin/live-classes/history', { params }),
+  detail: (id) => api.get(`/admin/live-classes/${id}`),
+  observe: (id) => api.post(`/admin/live-classes/${id}/observe`),
+  forceEnd: (id) => api.post(`/admin/live-classes/${id}/end`),
+  logs: (params) => api.get('/admin/live-classes-logs', { params }),
+  report: (params) => api.get('/admin/online-classes/report', { params }),
+  getSettings: () => api.get('/admin/online-classes/settings'),
+  updateSettings: (data) => api.put('/admin/online-classes/settings', data),
+  aiUsage: (params) => api.get('/admin/online-classes/ai-usage', { params }),
+  health: () => api.get('/admin/online-classes/health'),
 };
 
 // ─── NOTIFICATIONS ────────────────────────────────────────────────────────────

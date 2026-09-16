@@ -1,0 +1,53 @@
+# ─── LiveKit server configuration — LSS Online Classroom ─────────────────────
+#
+# Tuned for school classes on Pakistani home and mobile internet: audio is
+# protected first, video degrades before it drops, and TURN is available on 443
+# for students whose networks block UDP.
+
+port: 7880
+bind_addresses:
+  - ""
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 60000
+  use_external_ip: true
+  # Congestion control sheds video quality before it touches audio, so a lesson
+  # stays audible on a connection that cannot carry pictures.
+  congestion_control:
+    enabled: true
+
+redis:
+  address: 127.0.0.1:6379
+
+# TURN — the fallback that gets students behind carrier-grade NAT into the
+# room. Caddy terminates TLS on 443 for turn.lssbot.net and forwards plain TCP
+# here, which is what `external_tls: true` means.
+turn:
+  enabled: true
+  domain: turn.lssbot.net
+  tls_port: 5349
+  udp_port: 3478
+  external_tls: true
+
+# Attendance depends on these being delivered: the join and leave events that
+# reach this URL are what fill the register.
+# `api_key` must be the literal key (the same one the LSS backend uses) — this
+# file is read as-is, with no environment substitution.
+webhook:
+  api_key: REPLACE_WITH_LIVEKIT_API_KEY
+  urls:
+    - https://api.lssbot.net/api/livekit/webhook
+
+# Rooms are created by the backend when a teacher presses START CLASS and torn
+# down when the class ends; an empty room should not linger.
+room:
+  auto_create: false
+  empty_timeout: 300
+  departure_timeout: 20
+  max_participants: 120
+
+logging:
+  level: info
+  json: false

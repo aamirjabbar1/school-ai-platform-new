@@ -5,7 +5,12 @@ celery_app = Celery(
     "school_ai",
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=["tasks.document_tasks", "tasks.student_import_tasks"],
+    include=[
+        "tasks.document_tasks",
+        "tasks.student_import_tasks",
+        "tasks.conversion_tasks",
+        "tasks.online_class_tasks",
+    ],
 )
 
 celery_app.conf.update(
@@ -22,4 +27,33 @@ celery_app.conf.update(
     result_expires=86400,
     # Suppress CPendingDeprecationWarning in Celery 5.x / 6.x
     broker_connection_retry_on_startup=True,
+    # Document conversion runs on its own queue and its own container: headless
+    # LibreOffice is heavy and can hang on a malformed deck, which must never
+    # hold up document ingestion or anything a live class waits on.
+    task_routes={
+        "tasks.conversion_tasks.*": {"queue": "conversion"},
+    },
 )
+
+# ─── Scheduled work ───────────────────────────────────────────────────────────
+# Run by the `celery_beat` service. Everything here is ordinary bookkeeping —
+# closing abandoned classes, reminding students, expiring old recordings — and
+# none of it calls an AI model.
+celery_app.conf.beat_schedule = {
+    "close-abandoned-classes": {
+        "task": "tasks.online_class_tasks.close_abandoned_classes",
+        "schedule": 120.0,
+    },
+    "materialize-schedules": {
+        "task": "tasks.online_class_tasks.materialize_schedules",
+        "schedule": 600.0,
+    },
+    "class-reminders": {
+        "task": "tasks.online_class_tasks.send_class_reminders",
+        "schedule": 300.0,
+    },
+    "expire-recordings": {
+        "task": "tasks.online_class_tasks.expire_recordings",
+        "schedule": 3600.0,
+    },
+}

@@ -1,0 +1,59 @@
+# ─── Caddy (layer 4) — TLS for the media server ──────────────────────────────
+#
+# Everything arrives on 443, because that is the one port a school or mobile
+# network will not block. Caddy terminates TLS and routes by SNI:
+#
+#   live.lssbot.net  → 7880   signalling WebSocket (wss://)
+#   turn.lssbot.net  → 5349   TURN relay, for students whose network blocks UDP
+#
+# LiveKit is configured with `external_tls: true`, so it expects plain TCP on
+# 5349 and lets Caddy own the certificate. Certificates renew automatically —
+# no cron job, nothing to remember.
+
+logging:
+  logs:
+    default:
+      level: INFO
+
+storage:
+  module: file_system
+  root: /data
+
+apps:
+  layer4:
+    servers:
+      main:
+        listen: [":443"]
+        routes:
+          - match:
+              - tls:
+                  sni:
+                    - "live.lssbot.net"
+            handle:
+              - handler: tls
+                connection_policies:
+                  - alpn: ["http/1.1"]
+              - handler: proxy
+                upstreams:
+                  - dial: ["localhost:7880"]
+
+          - match:
+              - tls:
+                  sni:
+                    - "turn.lssbot.net"
+            handle:
+              - handler: tls
+              - handler: proxy
+                upstreams:
+                  - dial: ["localhost:5349"]
+
+  tls:
+    certificates:
+      automate:
+        - live.lssbot.net
+        - turn.lssbot.net
+    automation:
+      policies:
+        - issuers:
+            - module: acme
+              email: admin@lssbot.net

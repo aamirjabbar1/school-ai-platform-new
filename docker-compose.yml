@@ -180,6 +180,13 @@ services:
       MILVUS_PORT: 19530
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRES_DAYS: 7
+      # Online Classes — the media server runs on its own host (deploy/livekit).
+      # These credentials stay server-side; browsers receive only minted tokens.
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_HTTP_URL: ${LIVEKIT_HTTP_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      LIVEKIT_TOKEN_TTL_HOURS: ${LIVEKIT_TOKEN_TTL_HOURS:-3}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
@@ -246,16 +253,89 @@ services:
       MILVUS_HOST: milvus
       MILVUS_PORT: 19530
       JWT_SECRET: ${JWT_SECRET}
+      # Scheduled class housekeeping (ending abandoned rooms) runs here.
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_HTTP_URL: ${LIVEKIT_HTTP_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       AI_MODEL: ${AI_MODEL:-claude-opus-4-6}
+      AI_MODEL_FAST: ${AI_MODEL_FAST:-claude-haiku-4-5-20251001}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
       SCHOOL_NAME: ${SCHOOL_NAME:-My School}
       UPLOAD_DIR: /app/uploads
     volumes:
       - uploads_data:/app/uploads
       - model_cache:/root/.cache/fastembed
+    networks:
+      - school_network
+
+  # ─── Document conversion worker (LibreOffice) ─────────────────────────────────
+  # Turns PowerPoint/Word into PDFs the classroom can present, once per
+  # document. Separate image and separate queue: LibreOffice is heavy and can
+  # hang on a malformed deck, which must not stall ingestion or a live class.
+  converter:
+    build:
+      context: ./backend-python
+      dockerfile: Dockerfile.converter
+    container_name: school_ai_converter
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio_init:
+        condition: service_completed_successfully
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-school_ai_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: school-documents
+      MINIO_SECURE: "false"
+      MILVUS_HOST: milvus
+      MILVUS_PORT: 19530
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
+    networks:
+      - school_network
+
+  # ─── Celery beat (scheduled housekeeping) ─────────────────────────────────────
+  # Closes abandoned classes, sends class reminders, expires old recordings.
+  # No AI calls, no media processing — bookkeeping only.
+  celery_beat:
+    build:
+      context: ./backend-python
+      dockerfile: Dockerfile
+    container_name: school_ai_beat
+    restart: unless-stopped
+    entrypoint: []
+    command: ["celery", "-A", "celery_app", "beat", "--loglevel=info"]
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      ENV: production
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD}@postgres:5432/${DB_NAME:-school_ai_db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_HTTP_URL: ${LIVEKIT_HTTP_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads_data:/app/uploads
     networks:
       - school_network
 

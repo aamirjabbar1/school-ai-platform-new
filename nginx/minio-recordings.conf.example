@@ -1,0 +1,58 @@
+# ─── MinIO over TLS, for class recordings ────────────────────────────────────
+#
+# The recorder runs on the media host and uploads finished MP4s straight to
+# object storage, so MinIO has to be reachable from outside the application
+# VPS. Reaching it over plain http://<ip>:9000 would put recordings of children
+# on the open internet in the clear — so give it a TLS hostname instead.
+#
+# NOT wired in automatically: nginx refuses to start if it is handed a
+# certificate path that does not exist yet, and that would take lssbot.net down
+# with it. Obtain the certificate first, then paste this server block into
+# nginx/nginx.conf and reload.
+#
+# Setup, in order:
+#
+#   1. DNS:  minio.lssbot.net  →  the application VPS IP
+#   2. Certificate:
+#        docker run --rm -v /etc/letsencrypt:/etc/letsencrypt \
+#          -v /var/www/certbot:/var/www/certbot certbot/certbot certonly \
+#          --webroot -w /var/www/certbot -d minio.lssbot.net
+#      then place fullchain.pem / privkey.pem where the other certs live
+#      (/etc/nginx/ssl/minio.lssbot.net/).
+#   3. Paste the server block below into the http { } section of nginx.conf.
+#   4. nginx -t && nginx -s reload      ← test before reloading, always
+#   5. On the application VPS set:
+#        RECORDING_S3_ENDPOINT=https://minio.lssbot.net
+#   6. Harden: in docker-compose.yml change the MinIO port mappings to
+#        "127.0.0.1:9000:9000" and "127.0.0.1:9001:9001"
+#      so the only route in is this TLS proxy. (Do the same for postgres 5433,
+#      milvus 19530 and attu 8090 — none of them should answer the internet.)
+
+server {
+    listen 443 ssl;
+    server_name minio.lssbot.net;
+
+    ssl_certificate     /etc/nginx/ssl/minio.lssbot.net/fullchain.pem;
+    ssl_certificate_key /etc/nginx/ssl/minio.lssbot.net/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+
+    # A 45-minute class recording is a few hundred megabytes; the default 1 MB
+    # body limit would reject it, and a slow upload must not time out.
+    client_max_body_size 0;
+    proxy_request_buffering off;
+    proxy_buffering off;
+    proxy_read_timeout 900s;
+    proxy_send_timeout 900s;
+
+    location / {
+        proxy_pass         http://minio:9000;
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        # S3 clients keep connections alive between multipart parts.
+        proxy_set_header   Connection        "";
+    }
+}

@@ -827,7 +827,19 @@ def chunk_text(raw_text: str) -> list[dict]:
 
 # ─── DOCUMENT INGESTION ───────────────────────────────────────────────────────
 
-async def ingest_document(document_id: str, db: AsyncSession) -> dict:
+async def ingest_document(
+    document_id: str,
+    db: AsyncSession,
+    *,
+    source_object: str | None = None,
+    source_type: str | None = None,
+) -> dict:
+    """Extract, chunk, embed and index a document.
+
+    `source_object` / `source_type` let a caller index a derived file instead of
+    the original — used for PowerPoint decks, which are indexed from the PDF
+    LibreOffice produced. The document's own metadata is unchanged.
+    """
     result = await db.execute(select(Document).where(Document.id == document_id))
     doc = result.scalar_one_or_none()
     if not doc:
@@ -835,10 +847,12 @@ async def ingest_document(document_id: str, db: AsyncSession) -> dict:
 
     try:
         # 1. Download from MinIO
-        file_bytes = await asyncio.to_thread(storage_service.download_file, doc.file_path)
+        file_bytes = await asyncio.to_thread(
+            storage_service.download_file, source_object or doc.file_path
+        )
 
         # 2. Extract text via Claude Sonnet 4.6
-        raw_text = await extract_text_from_bytes(file_bytes, doc.file_type)
+        raw_text = await extract_text_from_bytes(file_bytes, source_type or doc.file_type)
         if not raw_text or len(raw_text.strip()) < 50:
             raise ValueError("Could not extract meaningful text from document")
 
