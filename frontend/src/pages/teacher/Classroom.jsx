@@ -27,6 +27,7 @@ export default function TeacherClassroom() {
     audioBlocked, localVideo, stage, screenSharing, docCameraOn, boardStrokes, board,
     connect, disconnect, toggleMic, toggleCamera, enableAudio, refreshState,
     toggleScreenShare, toggleDocumentCamera, changeStage, presentDocument,
+    recordingAvailable,
   } = classroom;
 
   const boardRef = useRef(null);
@@ -250,13 +251,17 @@ export default function TeacherClassroom() {
                 danger={!cameraOn} onClick={toggleCamera} />
           <Tool icon={VolumeX} label="Mute all" busy={busy === 'muteall'}
                 onClick={() => run('muteall', () => onlineClassAPI.muteAll(sessionId))} />
-          <Tool
-            icon={Circle}
-            label={recording ? 'Stop rec' : 'Record'}
-            active={recording}
-            busy={busy === 'record'}
-            onClick={toggleRecording}
-          />
+          {/* Shown only when the school has recording switched on and the
+              recorder is configured — otherwise there is no button to press. */}
+          {recordingAvailable && (
+            <Tool
+              icon={Circle}
+              label={recording ? 'Stop rec' : 'Record'}
+              active={recording}
+              busy={busy === 'record'}
+              onClick={toggleRecording}
+            />
+          )}
           <Tool
             icon={session?.is_locked ? Lock : Unlock}
             label={session?.is_locked ? 'Unlock' : 'Lock class'}

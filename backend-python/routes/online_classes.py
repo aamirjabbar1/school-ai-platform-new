@@ -457,9 +457,15 @@ async def class_state(
         if not allowed:
             raise HTTPException(status_code=403, detail=reason)
 
+    settings = await get_settings(db)
     state = {
         "session": session.to_dict(include_state=True),
         "hands": await classroom_state.list_hands(session.id),
+        # Drives whether the classroom shows a Record button at all. A control
+        # that only fails when pressed is worse than no control (spec §9).
+        "recording_available": bool(
+            settings.recording_enabled_globally and lk.recording_configured()
+        ),
     }
 
     if is_host:

@@ -40,6 +40,9 @@ export default function useClassroom({ sessionId, role }) {
   const [docCameraOn, setDocCameraOn] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [lowBandwidth, setLowBandwidth] = useState(false);
+  // Stays false until the server says recording is both switched on by the
+  // school and actually configured, so no dead Record button is ever shown.
+  const [recordingAvailable, setRecordingAvailable] = useState(false);
 
   const [remoteVideo, setRemoteVideo] = useState(null);   // teacher camera
   const [remoteScreen, setRemoteScreen] = useState(null); // teacher screen share
@@ -79,6 +82,7 @@ export default function useClassroom({ sessionId, role }) {
       setHands(data.hands || []);
       if (data.grant) setGrant(data.grant);
       if (data.attendance) setAttendance(data.attendance);
+      setRecordingAvailable(!!data.recording_available);
       if (data.session?.stage_mode) {
         setStage({ mode: data.session.stage_mode, state: data.session.stage_state || {} });
       }
@@ -547,6 +551,7 @@ export default function useClassroom({ sessionId, role }) {
   return {
     status, error, session, hands, grant, participants, attendance, speakers,
     micOn, cameraOn, audioBlocked, screenSharing, docCameraOn, lowBandwidth,
+    recordingAvailable,
     remoteVideo, remoteScreen, localVideo, resourceToken,
     stage, board, boardStrokes, bookAnnotations, liveStrokes,
     boardPageCount: Object.keys(board.pages).length,
