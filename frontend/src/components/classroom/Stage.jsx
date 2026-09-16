@@ -15,7 +15,7 @@ export default function Stage({
 }) {
   const {
     stage, remoteVideo, remoteScreen, localVideo, boardStrokes, bookAnnotations,
-    liveStrokes, board, boardPageCount, resourceToken,
+    liveStrokes, board, boardPageCount, resourceToken, teacherPresent,
     addStroke, sendStrokeProgress, clearSurface, undoStroke, setBoardPage, addBoardPage,
     changeStage, presentPage,
   } = classroom;
@@ -92,7 +92,16 @@ export default function Stage({
         <VideoTile
           track={teacherVideo}
           mirrored={editable && !classroom.docCameraOn}
-          placeholder={editable ? 'Your camera is off' : 'Waiting for your teacher'}
+          // "Waiting" is only true if the teacher is not in the room. A teacher
+          // teaching from a computer with no webcam is present, not absent, and
+          // telling a class otherwise makes a working lesson look broken.
+          placeholder={
+            editable
+              ? 'Your camera is off'
+              : teacherPresent
+                ? "Your teacher's camera is off"
+                : 'Waiting for your teacher'
+          }
           className="w-full h-full"
         />
       );

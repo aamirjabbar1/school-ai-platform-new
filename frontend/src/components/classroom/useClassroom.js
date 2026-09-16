@@ -380,6 +380,13 @@ export default function useClassroom({ sessionId, role }) {
 
   const dismissDeviceNotice = useCallback(() => setDeviceNotice(''), []);
 
+  // A teacher with no camera is still in the lesson. Without this, a class
+  // watches "Waiting for your teacher" while the teacher is talking to them.
+  const teacherPresent = useMemo(
+    () => participants.some((p) => p.identity === session?.teacher_id),
+    [participants, session?.teacher_id],
+  );
+
   const enableAudio = useCallback(async () => {
     try { await roomRef.current?.startAudio(); setAudioBlocked(false); } catch { /* banner stays */ }
   }, []);
@@ -609,7 +616,7 @@ export default function useClassroom({ sessionId, role }) {
 
   return {
     status, error, session, hands, grant, participants, attendance, speakers,
-    micOn, cameraOn, audioBlocked, deviceNotice, dismissDeviceNotice,
+    micOn, cameraOn, audioBlocked, deviceNotice, dismissDeviceNotice, teacherPresent,
     screenSharing, docCameraOn, lowBandwidth,
     recordingAvailable,
     remoteVideo, remoteScreen, localVideo, resourceToken,
