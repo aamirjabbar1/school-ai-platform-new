@@ -1,4 +1,7 @@
-FROM node:20-alpine AS builder
+# Node 22: the classroom dependencies pull in a transitive package that
+# declares `engines: node >=22.22`, which yarn enforces — a Node 20 builder
+# fails the install outright.
+FROM node:22-alpine AS builder
 
 WORKDIR /app
 
