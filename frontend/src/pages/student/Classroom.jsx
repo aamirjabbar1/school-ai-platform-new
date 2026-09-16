@@ -21,6 +21,7 @@ export default function StudentClassroom() {
   const classroom = useClassroom({ sessionId, role: 'student' });
   const {
     status, error, session, grant, micOn, audioBlocked, remoteVideo, stage,
+    deviceNotice, dismissDeviceNotice,
     lowBandwidth, connect, disconnect, toggleMic, enableAudio, applyLowBandwidth,
   } = classroom;
 
@@ -70,7 +71,13 @@ export default function StudentClassroom() {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface text-ink">
-      <ConnectionBanner status={status} audioBlocked={audioBlocked} onEnableAudio={enableAudio} />
+      <ConnectionBanner
+        status={status}
+        audioBlocked={audioBlocked}
+        onEnableAudio={enableAudio}
+        deviceNotice={deviceNotice}
+        onDismissDeviceNotice={dismissDeviceNotice}
+      />
 
       <header className="glass border-b border-line/60 px-4 py-3 flex items-center gap-3">
         <span className="relative flex h-2.5 w-2.5 shrink-0">

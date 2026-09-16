@@ -16,6 +16,24 @@ from celery_app import celery_app
 
 logger = logging.getLogger("agent")
 
+# How far past its planned end a live class may run before an empty room is
+# treated as abandoned. Generous on purpose: a lesson that overruns is normal,
+# and closing one that is still being taught would be far worse than leaving a
+# stale card up for another half hour.
+OVERRUN_GRACE = timedelta(minutes=30)
+
+
+def is_overrun(session, now) -> bool:
+    """Has this class outlived its own period by more than the grace window?
+
+    A predicate rather than an inline condition so the rule can be tested
+    without a database, a Celery worker or a media server.
+    """
+    if not session.actual_start:
+        return False
+    planned = timedelta(minutes=session.planned_duration_minutes or 40)
+    return now >= session.actual_start + planned + OVERRUN_GRACE
+
 
 def _run(coro):
     """Each task gets its own loop and engine — see tasks/document_tasks.py for
@@ -86,6 +104,50 @@ async def _close_abandoned_classes() -> dict:
 
             # Classes that ran far past their planned length with nobody in them
             # are also stale; finalising them keeps the live list truthful.
+            #
+            # The sweep above only sees teachers who connected and then dropped.
+            # A class whose teacher never connected at all has no
+            # `teacher_disconnected_at`, so nothing above matches it and it stays
+            # "live" forever — showing a JOIN CLASS card to a class of children
+            # for a lesson that is not happening.
+            overrun = (await db.execute(
+                select(OnlineClassSession).where(
+                    OnlineClassSession.status == SESSION_LIVE,
+                    OnlineClassSession.actual_start.is_not(None),
+                )
+            )).scalars().all()
+
+            for session in overrun:
+                if not is_overrun(session, utcnow()):
+                    continue  # still within its own period, plus room to run over
+
+                # "With nobody in them" is checked against the media server, not
+                # guessed: a long lesson that is genuinely still being taught
+                # must never be closed underneath the class. An unreachable
+                # media server means we do not know, so nothing is closed.
+                try:
+                    connected = await lk.list_participants(session.room_name)
+                except Exception as exc:
+                    logger.warning("[BEAT] cannot check %s, leaving it alone: %s", session.id, exc)
+                    continue
+                if connected:
+                    continue
+
+                session.status = "ended"
+                session.actual_end = utcnow()
+                session.end_reason = "overrun_empty"
+                await class_events.record(
+                    db, session.id, class_events.CLASS_ENDED,
+                    actor_role="system", payload={"reason": "overrun_empty"},
+                )
+                await attendance_service.finalize_session(db, session)
+                await classroom_state.clear_session(session.id)
+                try:
+                    await lk.end_room(session.room_name)
+                except Exception as exc:
+                    logger.warning("[BEAT] room teardown failed for %s: %s", session.id, exc)
+                closed += 1
+
             await db.commit()
     finally:
         await engine.dispose()

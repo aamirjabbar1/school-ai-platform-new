@@ -25,7 +25,8 @@ export default function TeacherClassroom() {
   const classroom = useClassroom({ sessionId, role: 'teacher' });
   const {
     status, error, session, hands, participants, attendance, micOn, cameraOn,
-    audioBlocked, localVideo, stage, screenSharing, docCameraOn, boardStrokes, board,
+    audioBlocked, deviceNotice, dismissDeviceNotice,
+    localVideo, stage, screenSharing, docCameraOn, boardStrokes, board,
     connect, disconnect, toggleMic, toggleCamera, enableAudio, refreshState,
     toggleScreenShare, toggleDocumentCamera, changeStage, presentDocument,
     recordingAvailable,
@@ -155,7 +156,13 @@ export default function TeacherClassroom() {
 
   return (
     <div className="min-h-screen flex flex-col bg-surface text-ink">
-      <ConnectionBanner status={status} audioBlocked={audioBlocked} onEnableAudio={enableAudio} />
+      <ConnectionBanner
+        status={status}
+        audioBlocked={audioBlocked}
+        onEnableAudio={enableAudio}
+        deviceNotice={deviceNotice}
+        onDismissDeviceNotice={dismissDeviceNotice}
+      />
 
       <header className="glass border-b border-line/60 px-4 py-3 flex items-center gap-3">
         <span className="relative flex h-2.5 w-2.5 shrink-0">

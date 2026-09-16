@@ -26,6 +26,53 @@ const STATE_POLL_MS = 15000;
 const SNAPSHOT_MS = 6000;
 const LIVE_STROKE_MS = 60;
 
+// ─── Local devices ────────────────────────────────────────────────────────────
+//
+// A camera or microphone that will not start must never cost anyone the
+// classroom. A teacher on a desktop with no webcam, or one who dismissed the
+// permission prompt, can still teach the whole lesson: the whiteboard, the
+// books and screen sharing need no capture device at all. So device failures
+// are reported, not thrown — and specifically enough to act on, since "plug in
+// a microphone" and "allow the browser" are different problems.
+
+function deviceReason(err) {
+  switch (err?.name) {
+    case 'NotAllowedError':
+    case 'PermissionDeniedError':
+      return 'blocked in your browser';
+    case 'NotFoundError':
+    case 'DevicesNotFoundError':
+      return 'not connected to this computer';
+    case 'NotReadableError':
+    case 'TrackStartError':
+      return 'already being used by another app';
+    default:
+      return 'unavailable';
+  }
+}
+
+async function tryDevice(enable) {
+  try {
+    await enable();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: deviceReason(err) };
+  }
+}
+
+const STILL_WORKS = 'The whiteboard, books and screen sharing still work.';
+
+function deviceNoticeFor(mic, camera) {
+  if (mic.ok && camera.ok) return '';
+  if (!mic.ok && !camera.ok) {
+    return `Your microphone is ${mic.reason} and your camera is ${camera.reason}. ${STILL_WORKS}`;
+  }
+  if (!mic.ok) {
+    return `Your microphone is ${mic.reason}, so students will not hear you. ${STILL_WORKS}`;
+  }
+  return `Your camera is ${camera.reason}, so students will not see you. ${STILL_WORKS}`;
+}
+
 export default function useClassroom({ sessionId, role }) {
   const [status, setStatus] = useState('idle'); // idle|connecting|live|reconnecting|ended|error
   const [error, setError] = useState('');
@@ -40,6 +87,7 @@ export default function useClassroom({ sessionId, role }) {
   const [screenSharing, setScreenSharing] = useState(false);
   const [docCameraOn, setDocCameraOn] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
+  const [deviceNotice, setDeviceNotice] = useState('');
   const [lowBandwidth, setLowBandwidth] = useState(false);
   // Stays false until the server says recording is both switched on by the
   // school and actually configured, so no dead Record button is ever shown.
@@ -277,10 +325,14 @@ export default function useClassroom({ sessionId, role }) {
       try { await room.startAudio(); } catch { setAudioBlocked(true); }
 
       if (isTeacher) {
-        await room.localParticipant.setMicrophoneEnabled(true);
-        await room.localParticipant.setCameraEnabled(true);
-        setMicOn(true);
-        setCameraOn(true);
+        // Each device is enabled on its own, and a failure is a notice rather
+        // than an exception — otherwise a laptop with no webcam throws here and
+        // the catch below ends a class the teacher had already joined.
+        const mic = await tryDevice(() => room.localParticipant.setMicrophoneEnabled(true));
+        const camera = await tryDevice(() => room.localParticipant.setCameraEnabled(true));
+        setMicOn(mic.ok);
+        setCameraOn(camera.ok);
+        setDeviceNotice(deviceNoticeFor(mic, camera));
       }
 
       syncParticipants(room, setParticipants);
@@ -306,21 +358,27 @@ export default function useClassroom({ sessionId, role }) {
   }, [sessionId]);
 
   // ── Local devices ─────────────────────────────────────────────────────────
+  // Turning a device on can fail the same way it can at join time — a student
+  // granted the mic may have none. Say so; never leave the button lying.
   const toggleMic = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
     const next = !micOn;
-    await room.localParticipant.setMicrophoneEnabled(next);
-    setMicOn(next);
+    const result = await tryDevice(() => room.localParticipant.setMicrophoneEnabled(next));
+    setMicOn(next && result.ok);
+    setDeviceNotice(result.ok ? '' : `Your microphone is ${result.reason}.`);
   }, [micOn]);
 
   const toggleCamera = useCallback(async () => {
     const room = roomRef.current;
     if (!room) return;
     const next = !cameraOn;
-    await room.localParticipant.setCameraEnabled(next);
-    setCameraOn(next);
+    const result = await tryDevice(() => room.localParticipant.setCameraEnabled(next));
+    setCameraOn(next && result.ok);
+    setDeviceNotice(result.ok ? '' : `Your camera is ${result.reason}.`);
   }, [cameraOn]);
+
+  const dismissDeviceNotice = useCallback(() => setDeviceNotice(''), []);
 
   const enableAudio = useCallback(async () => {
     try { await roomRef.current?.startAudio(); setAudioBlocked(false); } catch { /* banner stays */ }
@@ -551,7 +609,8 @@ export default function useClassroom({ sessionId, role }) {
 
   return {
     status, error, session, hands, grant, participants, attendance, speakers,
-    micOn, cameraOn, audioBlocked, screenSharing, docCameraOn, lowBandwidth,
+    micOn, cameraOn, audioBlocked, deviceNotice, dismissDeviceNotice,
+    screenSharing, docCameraOn, lowBandwidth,
     recordingAvailable,
     remoteVideo, remoteScreen, localVideo, resourceToken,
     stage, board, boardStrokes, bookAnnotations, liveStrokes,

@@ -8,7 +8,7 @@ provider.
 """
 from __future__ import annotations
 
-from datetime import date as date_type, datetime, time as time_type
+from datetime import date as date_type, datetime, time as time_type, timedelta
 
 import pytest
 
@@ -289,3 +289,47 @@ class TestRoomIsCreatedBeforeAnyoneDials:
                                         role="teacher", sources=["microphone"]))
         assert caught.value.status_code == 503
         assert not issued, "a token for an unreachable room must not be handed out"
+
+
+# ─── Classes that nobody ended (spec §22) ─────────────────────────────────────
+
+class TestAbandonedClassesAreClosed:
+    """A class that stays "live" forever keeps showing a JOIN CLASS card to a
+    whole class of children for a lesson that is not happening. The disconnect
+    sweep cannot catch every case: a teacher whose browser never connected has
+    no disconnect to record, so the class has to be judged on its own clock.
+    """
+
+    def session_started(self, minutes_ago, planned=40):
+        session = make_session(planned_duration_minutes=planned)
+        session.actual_start = datetime(2026, 9, 16, 12, 0) - timedelta(minutes=minutes_ago)
+        return session
+
+    def now(self):
+        return datetime(2026, 9, 16, 12, 0)
+
+    def test_a_class_inside_its_period_is_left_alone(self):
+        from tasks.online_class_tasks import is_overrun
+        assert is_overrun(self.session_started(10), self.now()) is False
+
+    def test_a_class_running_a_little_over_is_left_alone(self):
+        """Lessons overrun. That is not abandonment."""
+        from tasks.online_class_tasks import is_overrun
+        assert is_overrun(self.session_started(55), self.now()) is False
+
+    def test_a_class_long_past_its_end_is_stale(self):
+        from tasks.online_class_tasks import is_overrun
+        assert is_overrun(self.session_started(40 + 31), self.now()) is True
+
+    def test_a_class_that_never_started_is_not_judged_by_this_rule(self):
+        from tasks.online_class_tasks import is_overrun
+        session = make_session()
+        session.actual_start = None
+        assert is_overrun(session, self.now()) is False
+
+    def test_a_long_lesson_gets_its_full_length(self):
+        """The grace runs from the planned end, not from a fixed hour, so a
+        double period is not closed at the same moment as a single one."""
+        from tasks.online_class_tasks import is_overrun
+        assert is_overrun(self.session_started(100, planned=90), self.now()) is False
+        assert is_overrun(self.session_started(125, planned=90), self.now()) is True
