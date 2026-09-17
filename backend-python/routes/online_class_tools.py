@@ -34,6 +34,7 @@ from models.models import Document, User, utcnow
 from models.online_classes import (
     SESSION_LIVE,
     STAGE_MODES,
+    STAGE_VIDEO,
     OnlineClassResource,
     OnlineClassSession,
     OnlineClassWhiteboard,
@@ -124,6 +125,11 @@ async def set_stage(
 ):
     session = await get_session(db, session_id)
     require_host(session, user)
+    if body.mode == STAGE_VIDEO and body.state:
+        # A video id reaches every student's player, so it only ever arrives
+        # through the endpoint that validates it. Switching back to a video
+        # already on the stage (no state) is fine here.
+        raise HTTPException(status_code=400, detail="Share videos through /video.")
     return await _apply_stage(db, session, user, body.mode, body.state)
 
 
@@ -630,3 +636,70 @@ async def share_state(
         stage = await _apply_stage(db, session, user, previous, None)
 
     return {"active": body.active, "stage": stage}
+
+
+# ─── Shared video ─────────────────────────────────────────────────────────────
+
+class VideoRequest(BaseModel):
+    # A link to put a new video on the stage; omitted when the teacher only
+    # plays, pauses or seeks the video already there.
+    url: str | None = None
+    playing: bool = False
+    position: float | None = None
+
+
+@router.post("/{session_id}/video")
+async def share_video(
+    session_id: str,
+    body: VideoRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """SHARE VIDEO — a YouTube video every student's device plays itself.
+
+    Screen sharing cannot do this from a phone (no mobile browser can capture
+    its screen), and from a laptop it sends the video as a second-hand stream.
+    Here each device plays the original, sound included, and only "playing at
+    1:32" crosses the classroom connection.
+
+    Play, pause and seek are sent through here too, so a student who joins late
+    starts at the right moment. The live position between those moments travels
+    over the data channel from the teacher's browser, never through this route.
+    """
+    session = await get_session(db, session_id)
+    require_host(session, user)
+    if session.status != SESSION_LIVE:
+        raise HTTPException(status_code=409, detail="This class is not live.")
+
+    current = (session.stage_state or {}).get(STAGE_VIDEO) or {}
+
+    if body.url is not None:
+        parsed = classroom_state.parse_youtube_link(body.url)
+        if not parsed:
+            raise HTTPException(
+                status_code=400,
+                detail="That is not a YouTube video link. Copy the link from YouTube's Share button.",
+            )
+        video_id, start = parsed
+        position = body.position if body.position is not None else start
+        if video_id != current.get("video_id"):
+            await class_events.record(
+                db, session.id, class_events.VIDEO_SHARED,
+                actor_id=user.id, actor_role=user.role,
+                payload={"video_id": video_id, "start": start},
+            )
+        mode = STAGE_VIDEO
+    else:
+        video_id = current.get("video_id")
+        if not video_id:
+            raise HTTPException(status_code=400, detail="No video is being shared.")
+        position = body.position if body.position is not None else current.get("position", 0)
+        # A pause that lands after the teacher has already moved on to the
+        # board must not drag the class back to the video.
+        mode = session.stage_mode
+
+    session.stage_state = classroom_state.merge_stage_state(
+        session.stage_state, STAGE_VIDEO,
+        classroom_state.video_stage_state(video_id, playing=body.playing, position=position),
+    )
+    return await _apply_stage(db, session, user, mode, None)

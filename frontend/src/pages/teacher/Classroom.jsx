@@ -6,12 +6,15 @@ import VideoTile from '../../components/classroom/VideoTile';
 import ConnectionBanner from '../../components/classroom/ConnectionBanner';
 import Stage from '../../components/classroom/Stage';
 import ResourcePicker from '../../components/classroom/ResourcePicker';
+import ShareVideoDialog from '../../components/classroom/ShareVideoDialog';
+import PhoneShareSheet from '../../components/classroom/PhoneShareSheet';
 import AttendanceReport from '../../components/classroom/AttendanceReport';
 import { onlineClassAPI } from '../../services/api';
 import { apiError } from '../../services/apiError';
 import {
   Mic, MicOff, Video, VideoOff, Users, PhoneOff, Hand, VolumeX, UserMinus,
   Lock, Unlock, X, Loader2, PenLine, BookOpen, MonitorUp, Camera, Presentation, Circle,
+  Clapperboard,
 } from 'lucide-react';
 
 // The teaching interface. Large, unambiguous controls and no conferencing
@@ -29,12 +32,14 @@ export default function TeacherClassroom() {
     localVideo, stage, screenSharing, docCameraOn, boardStrokes, board,
     connect, disconnect, toggleMic, toggleCamera, enableAudio, refreshState,
     toggleScreenShare, toggleDocumentCamera, changeStage, presentDocument,
-    recordingAvailable,
+    shareVideo, recordingAvailable,
   } = classroom;
 
   const boardRef = useRef(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
+  const [phoneShareOpen, setPhoneShareOpen] = useState(false);
   const [busy, setBusy] = useState('');
   const [ending, setEnding] = useState(false);
   const [savingBoard, setSavingBoard] = useState(false);
@@ -120,10 +125,18 @@ export default function TeacherClassroom() {
   const shareScreen = async () => {
     const result = await toggleScreenShare();
     if (!result.ok && result.reason === 'unsupported') {
-      // Rather than a button that silently fails on a phone, say what works.
-      setNotice('This device cannot share a screen. Use Show Book to point the camera at your book.');
+      // Rather than a button that silently fails on a phone, offer what works.
+      setPhoneShareOpen(true);
     } else if (!result.ok && result.reason === 'failed') {
       setNotice('Screen sharing did not start. Please try again.');
+    } else if (result.ok && result.withSound === false) {
+      // Sharing a screen without its sound is a choice made in the browser's
+      // picker, and easy to miss — say how to include it.
+      setNotice(
+        window.chrome
+          ? 'Students can see your screen but not hear it. For sound, share a Chrome tab and keep “Also share tab audio” switched on.'
+          : 'Students can see your screen but not hear it: this browser cannot share sound. Use Chrome or Edge, or Share Video for YouTube.',
+      );
     }
   };
 
@@ -246,6 +259,8 @@ export default function TeacherClassroom() {
           />
           <Tool icon={BookOpen} label="Open Book" active={stage.mode === 'book'}
                 onClick={() => setPickerOpen(true)} />
+          <Tool icon={Clapperboard} label="Share Video" active={stage.mode === 'video'}
+                onClick={() => setVideoOpen(true)} />
           <Tool icon={MonitorUp} label="Share Screen" active={screenSharing} onClick={shareScreen} />
           <Tool icon={Presentation} label="Show Book" active={docCameraOn} onClick={showPhysicalBook} />
           <Tool icon={Camera} label="Camera view" active={stage.mode === 'camera'}
@@ -290,6 +305,24 @@ export default function TeacherClassroom() {
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
         onPresent={presentDocument}
+      />
+
+      <ShareVideoDialog
+        open={videoOpen}
+        onClose={() => setVideoOpen(false)}
+        onShare={shareVideo}
+        onResume={() => changeStage('video', null)}
+        hasVideo={!!stage.state?.video?.video_id}
+        videoOnStage={stage.mode === 'video'}
+      />
+
+      <PhoneShareSheet
+        open={phoneShareOpen}
+        onClose={() => setPhoneShareOpen(false)}
+        onVideo={() => setVideoOpen(true)}
+        onBook={() => setPickerOpen(true)}
+        onDocumentCamera={showPhysicalBook}
+        onWhiteboard={() => changeStage('whiteboard', { page: board.pageIndex })}
       />
 
       {/* Students panel */}

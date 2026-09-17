@@ -44,7 +44,11 @@ STAGE_CAMERA = "camera"
 STAGE_BOOK = "book"
 STAGE_WHITEBOARD = "whiteboard"
 STAGE_SCREEN = "screen"
-STAGE_MODES = (STAGE_CAMERA, STAGE_BOOK, STAGE_WHITEBOARD, STAGE_SCREEN)
+# A YouTube video every student's device plays itself, kept in step with the
+# teacher's. The one way to show a video — with its sound — from a phone,
+# where browsers cannot share a screen at all.
+STAGE_VIDEO = "video"
+STAGE_MODES = (STAGE_CAMERA, STAGE_BOOK, STAGE_WHITEBOARD, STAGE_SCREEN, STAGE_VIDEO)
 
 
 # ─── SCHEDULE ─────────────────────────────────────────────────────────────────
@@ -300,6 +304,7 @@ class OnlineClassEvent(Base):
     actor_role = Column(String(20), nullable=True)
     # class_started | class_ended | book_opened | page_presented | whiteboard_saved |
     # stage_changed | resource_opened | screen_share_started | screen_share_stopped |
+    # video_shared |
     # hand_raised | hand_lowered | mic_granted | mic_revoked | mute_all |
     # student_removed | class_locked | recording_started | recording_stopped |
     # admin_observed | token_issued | join_denied

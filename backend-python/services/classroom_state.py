@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 import time
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from config.settings import REDIS_URL
 
@@ -199,6 +202,87 @@ def merge_stage_state(current: dict | None, mode: str, state: dict | None) -> di
     if state:
         merged[mode] = {**(merged.get(mode) or {}), **state}
     return merged
+
+
+# ─── Shared videos ────────────────────────────────────────────────────────────
+
+_YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_YOUTUBE_HOSTS = {
+    "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
+    "youtu.be", "www.youtube-nocookie.com", "youtube-nocookie.com",
+}
+_YOUTUBE_PATH_PREFIXES = ("embed", "shorts", "live", "v")
+_TIMESTAMP = re.compile(r"^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$")
+
+
+def parse_youtube_link(link: str | None) -> tuple[str, int] | None:
+    """(video id, start second) from whatever a teacher pastes, or None.
+
+    Teachers copy links from the share button, the address bar, a phone's share
+    sheet or a Shorts page, so every one of those shapes is accepted. Anything
+    that is not unmistakably a YouTube video is refused: the id ends up in every
+    student's player, and "some URL a teacher typed" is not something to embed
+    in a child's browser.
+    """
+    text = (link or "").strip()
+    if not text:
+        return None
+    if _YOUTUBE_ID.match(text):
+        return text, 0
+    if "://" not in text:
+        text = f"https://{text}"
+
+    try:
+        parts = urlsplit(text)
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or (parts.hostname or "").lower() not in _YOUTUBE_HOSTS:
+        return None
+
+    query = parse_qs(parts.query)
+    segments = [s for s in parts.path.split("/") if s]
+    if parts.hostname.lower() == "youtu.be":
+        candidate = segments[0] if segments else ""
+    elif segments[:1] == ["watch"]:
+        candidate = (query.get("v") or [""])[0]
+    elif len(segments) >= 2 and segments[0] in _YOUTUBE_PATH_PREFIXES:
+        candidate = segments[1]
+    else:
+        return None
+
+    if not _YOUTUBE_ID.match(candidate):
+        return None
+    start = _parse_timestamp((query.get("t") or query.get("start") or [""])[0])
+    return candidate, start
+
+
+def _parse_timestamp(value: str) -> int:
+    """'90', '90s' and '1m30s' all mean second 90; anything else means 0."""
+    match = _TIMESTAMP.match(value.strip().lower()) if value else None
+    if not match:
+        return 0
+    hours, minutes, seconds = (int(g) if g else 0 for g in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
+def video_stage_state(
+    video_id: str, *, playing: bool, position: float, now: float | None = None,
+) -> dict:
+    """Where the shared video is, stamped with when that was true.
+
+    A student who joins mid-video (or reconnects) starts from `position` plus
+    the time since `updated_at`, then the teacher's device corrects any
+    remaining difference every few seconds over the data channel.
+    """
+    position = float(position or 0)
+    if not math.isfinite(position):
+        position = 0.0
+    return {
+        "video_id": video_id,
+        "playing": bool(playing),
+        "position": round(max(0.0, position), 2),
+        "updated_at": round(now if now is not None else time.time(), 3),
+    }
 
 
 def publish_sources(grant: dict, *, cameras_locked: bool) -> list[str]:

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Room, RoomEvent, Track, VideoPresets, DisconnectReason, createLocalVideoTrack,
+  Room, RoomEvent, Track, VideoPresets, AudioPresets, DisconnectReason, createLocalVideoTrack,
 } from 'livekit-client';
 import { liveClassAdminAPI, onlineClassAPI } from '../../services/api';
 import { apiError } from '../../services/apiError';
@@ -62,6 +62,24 @@ async function tryDevice(enable) {
 
 const STILL_WORKS = 'The whiteboard, books and screen sharing still work.';
 
+// ─── Screen share with sound ──────────────────────────────────────────────────
+//
+// Voice processing is for voices. Left on, echo cancellation and noise
+// suppression treat a video's music and narration as noise to remove, and
+// automatic gain pumps the volume. Speech settings (low bitrate, DTX, which
+// goes silent in quiet passages) are replaced with a music preset for the same
+// reason; they apply to the shared sound only, never to the teacher's mic.
+const SCREEN_CAPTURE = {
+  audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  systemAudio: 'include',
+  // The teacher keeps hearing the video they are sharing.
+  suppressLocalAudioPlayback: false,
+  // "Share this tab instead" keeps the sound following the tab being shown.
+  surfaceSwitching: 'include',
+};
+const SCREEN_PUBLISH = { audioPreset: AudioPresets.musicStereo, dtx: false, red: false };
+const AUDIO_REQUEST_REJECTED = ['TypeError', 'NotSupportedError', 'OverconstrainedError'];
+
 function deviceNoticeFor(mic, camera) {
   if (mic.ok && camera.ok) return '';
   if (!mic.ok && !camera.ok) {
@@ -103,8 +121,10 @@ export default function useClassroom({ sessionId, role }) {
   const [board, setBoard] = useState({ pageIndex: 0, pages: { 0: [] } });
   const [annotations, setAnnotations] = useState({});   // "docId:page" → strokes
   const [liveStrokes, setLiveStrokes] = useState([]);   // in-progress remote stroke
+  const [videoSync, setVideoSync] = useState(null);     // teacher's live video position
 
   const roomRef = useRef(null);
+  const stoppingShareRef = useRef(false);
   const pollRef = useRef(null);
   const snapshotRef = useRef(null);
   const liveSendRef = useRef(0);
@@ -208,6 +228,16 @@ export default function useClassroom({ sessionId, role }) {
         }));
         break;
 
+      case 'video_sync':
+        // Stamped on arrival rather than trusting the teacher's clock.
+        setVideoSync({
+          videoId: message.video_id,
+          playing: !!message.playing,
+          position: Number(message.position) || 0,
+          at: Date.now(),
+        });
+        break;
+
       case 'hands':
         setHands(message.hands || []);
         break;
@@ -300,6 +330,15 @@ export default function useClassroom({ sessionId, role }) {
         .on(RoomEvent.LocalTrackUnpublished, (pub) => {
           if (pub.kind === Track.Kind.Video && pub.source !== Track.Source.ScreenShare) {
             setLocalVideo(null);
+          }
+          // The browser's own "Stop sharing" bar ends the share without going
+          // through the Share Screen button. Without this the class would sit
+          // on "Starting the shared screen…" until the teacher noticed.
+          if (pub.source === Track.Source.ScreenShare) {
+            setScreenSharing(false);
+            if (!stoppingShareRef.current) {
+              onlineClassAPI.share(sessionId, { active: false, source: 'screen' }).catch(() => {});
+            }
           }
         })
         .on(RoomEvent.ParticipantConnected, () => syncParticipants(room, setParticipants))
@@ -397,28 +436,77 @@ export default function useClassroom({ sessionId, role }) {
     if (!room) return { ok: false, reason: 'not-connected' };
 
     if (screenSharing) {
-      await room.localParticipant.setScreenShareEnabled(false);
+      stoppingShareRef.current = true;
+      try {
+        await room.localParticipant.setScreenShareEnabled(false);
+      } finally {
+        stoppingShareRef.current = false;
+      }
       setScreenSharing(false);
       await onlineClassAPI.share(sessionId, { active: false, source: 'screen' });
       return { ok: true };
     }
 
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      // Most mobile browsers cannot share a screen at all. Saying so plainly
-      // beats a button that does nothing — the teacher can point the camera at
-      // the book instead, which is what they actually want on a phone.
+      // No mobile browser can capture the screen — Android and iOS reserve that
+      // for installed apps. The caller offers what does work from a phone
+      // (a shared video, the book, the document camera) instead.
       return { ok: false, reason: 'unsupported' };
     }
 
     try {
-      await room.localParticipant.setScreenShareEnabled(true, { audio: false });
+      try {
+        // Sound is asked for, not assumed: Chrome and Edge offer "Also share
+        // tab audio" (and system audio for a whole screen on Windows), which is
+        // how a YouTube video shared in a lesson is heard as well as seen.
+        await room.localParticipant.setScreenShareEnabled(true, SCREEN_CAPTURE, SCREEN_PUBLISH);
+      } catch (err) {
+        // A browser that rejects the audio request itself still gets to share
+        // the picture. These errors are raised before the picker opens, so the
+        // retry never makes the teacher choose a screen twice.
+        if (!AUDIO_REQUEST_REJECTED.includes(err?.name)) throw err;
+        await room.localParticipant.setScreenShareEnabled(true, { audio: false });
+      }
       setScreenSharing(true);
+      const withSound = !!room.localParticipant
+        .getTrackPublication(Track.Source.ScreenShareAudio)?.track;
       await onlineClassAPI.share(sessionId, { active: true, source: 'screen' });
-      return { ok: true };
+      return { ok: true, withSound };
     } catch (err) {
       return { ok: false, reason: err?.name === 'NotAllowedError' ? 'cancelled' : 'failed' };
     }
   }, [screenSharing, sessionId]);
+
+  // ── Shared video ──────────────────────────────────────────────────────────
+  //
+  // Every device plays the video itself; the teacher's player is the clock.
+  // Play, pause and seek go through the server so late joiners start in the
+  // right place, and a heartbeat over the data channel keeps everyone within a
+  // few seconds between those moments.
+  const shareVideo = useCallback(async (url) => {
+    const { data } = await onlineClassAPI.video(sessionId, { url, playing: false });
+    setStage({ mode: data.mode, state: data.state || {} });
+    return data;
+  }, [sessionId]);
+
+  const reportVideo = useCallback(async ({ playing, position }) => {
+    try {
+      const { data } = await onlineClassAPI.video(sessionId, { playing, position });
+      // Only the video's own state is taken from the reply. A pause sent as the
+      // teacher switches to the board can finish after that switch, and must
+      // not put the video back on the teacher's screen.
+      setStage((prev) => ({
+        ...prev,
+        state: { ...prev.state, video: data.state?.video || prev.state.video },
+      }));
+    } catch {
+      // The heartbeat keeps the class in step; late joiners catch up on poll.
+    }
+  }, [sessionId]);
+
+  const sendVideoProgress = useCallback(({ videoId, playing, position }) => {
+    publish({ t: 'video_sync', video_id: videoId, playing, position }, { reliable: false });
+  }, [publish]);
 
   // ── Document camera (spec §10) ────────────────────────────────────────────
   //
@@ -620,11 +708,12 @@ export default function useClassroom({ sessionId, role }) {
     screenSharing, docCameraOn, lowBandwidth,
     recordingAvailable,
     remoteVideo, remoteScreen, localVideo, resourceToken,
-    stage, board, boardStrokes, bookAnnotations, liveStrokes,
+    stage, board, boardStrokes, bookAnnotations, liveStrokes, videoSync,
     boardPageCount: Object.keys(board.pages).length,
     room: roomRef,
     connect, disconnect, toggleMic, toggleCamera, enableAudio, refreshState,
     toggleScreenShare, toggleDocumentCamera, applyLowBandwidth,
+    shareVideo, reportVideo, sendVideoProgress,
     addStroke, sendStrokeProgress, clearSurface, undoStroke,
     setBoardPage, addBoardPage, changeStage, loadSnapshot,
     presentDocument, presentPage,

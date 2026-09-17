@@ -52,6 +52,78 @@ class TestStageState:
         assert merge_stage_state(before, "camera", None) == before
 
 
+# ─── Shared video ─────────────────────────────────────────────────────────────
+
+class TestYouTubeLinks:
+    ID = "dQw4w9WgXcQ"
+
+    def parse(self, link):
+        from services.classroom_state import parse_youtube_link
+        return parse_youtube_link(link)
+
+    @pytest.mark.parametrize("link", [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://youtube.com/watch?v=dQw4w9WgXcQ&list=PL123&index=2",
+        "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://youtu.be/dQw4w9WgXcQ?si=AbCdEf",
+        "youtu.be/dQw4w9WgXcQ",
+        "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+        "https://www.youtube.com/embed/dQw4w9WgXcQ",
+        "https://www.youtube.com/live/dQw4w9WgXcQ?feature=share",
+        "https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ",
+        "  dQw4w9WgXcQ  ",
+    ])
+    def test_every_way_a_teacher_copies_a_link(self, link):
+        assert self.parse(link) == (self.ID, 0)
+
+    @pytest.mark.parametrize("link, start", [
+        ("https://youtu.be/dQw4w9WgXcQ?t=90", 90),
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=90s", 90),
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=1m30s", 90),
+        ("https://www.youtube.com/embed/dQw4w9WgXcQ?start=45", 45),
+        ("https://youtu.be/dQw4w9WgXcQ?t=nonsense", 0),
+    ])
+    def test_a_link_to_a_moment_starts_there(self, link, start):
+        assert self.parse(link) == (self.ID, start)
+
+    @pytest.mark.parametrize("link", [
+        "",
+        None,
+        "https://evil.example.com/watch?v=dQw4w9WgXcQ",
+        "https://youtube.com.evil.example/watch?v=dQw4w9WgXcQ",
+        "javascript:alert(1)//youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://www.youtube.com/watch?v=short",
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ\"><script>",
+        "https://www.youtube.com/@SomeChannel",
+        "https://www.youtube.com/playlist?list=PL123",
+    ])
+    def test_anything_else_is_refused(self, link):
+        assert self.parse(link) is None
+
+
+class TestVideoStageState:
+    def test_state_is_stamped_and_clamped(self):
+        from services.classroom_state import video_stage_state
+
+        state = video_stage_state("dQw4w9WgXcQ", playing=1, position=-4, now=1000.0)
+        assert state == {
+            "video_id": "dQw4w9WgXcQ", "playing": True, "position": 0.0, "updated_at": 1000.0,
+        }
+
+    def test_a_nonsense_position_starts_from_the_beginning(self):
+        from services.classroom_state import video_stage_state
+
+        assert video_stage_state("dQw4w9WgXcQ", playing=False, position=float("nan"))["position"] == 0.0
+
+    def test_playing_the_video_keeps_the_book_where_it_was(self):
+        from services.classroom_state import merge_stage_state, video_stage_state
+
+        state = merge_stage_state({}, "book", {"document_id": "d1", "page": 42})
+        state = merge_stage_state(state, "video", video_stage_state("dQw4w9WgXcQ", playing=True, position=12))
+        assert state["book"]["page"] == 42
+        assert state["video"]["position"] == 12
+
+
 class TestPublishGrants:
     def sources(self, grant, cameras_locked=False):
         from services.classroom_state import publish_sources

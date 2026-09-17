@@ -2,12 +2,13 @@ import { useMemo } from 'react';
 import VideoTile from './VideoTile';
 import Whiteboard from './Whiteboard';
 import BookViewer from './BookViewer';
+import VideoStage from './VideoStage';
 import { API_ORIGIN } from '../../services/api';
 
 // ─── The main teaching area (spec §11) ────────────────────────────────────────
 //
 // Whatever the teacher is showing fills this space, and every student's screen
-// follows automatically — book, board, shared screen or camera. Students never
+// follows automatically — book, board, video, shared screen or camera. Students never
 // choose what to watch; a nine-year-old should not have to work out which tile
 // is the lesson.
 export default function Stage({
@@ -71,6 +72,18 @@ export default function Stage({
         />
       ) : (
         <EmptyStage message="No book is open." />
+      );
+
+    case 'video':
+      return (
+        <VideoStage
+          video={stage.state?.video}
+          editable={editable}
+          sync={classroom.videoSync}
+          lowBandwidth={classroom.lowBandwidth}
+          onReport={editable ? classroom.reportVideo : undefined}
+          onProgress={editable ? classroom.sendVideoProgress : undefined}
+        />
       );
 
     case 'screen':

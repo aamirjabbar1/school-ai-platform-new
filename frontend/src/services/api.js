@@ -224,6 +224,7 @@ export const onlineClassAPI = {
     api.get(`/online-classes/${id}/resources/${documentId}/status`),
   resourceToken: (id) => api.get(`/online-classes/${id}/resource-token`),
   share: (id, data) => api.post(`/online-classes/${id}/share`, data),
+  video: (id, data) => api.post(`/online-classes/${id}/video`, data),
   saveBoardSnapshot: (id, data) => api.post(`/online-classes/${id}/whiteboard/snapshot`, data),
   boardSnapshot: (id) => api.get(`/online-classes/${id}/whiteboard/snapshot`),
   saveWhiteboard: (id, data) => api.post(`/online-classes/${id}/whiteboard/save`, data),
