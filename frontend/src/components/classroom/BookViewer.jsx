@@ -36,6 +36,7 @@ export default function BookViewer({
   const [pageCount, setPageCount] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [attempt, setAttempt] = useState(0);
 
   // ── Load the document ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -55,7 +56,10 @@ export default function BookViewer({
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err?.message || 'This document could not be opened.');
+        // pdf.js messages ("Setting up fake worker failed…") mean nothing to a
+        // teacher in front of a class. Keep the detail for whoever debugs it.
+        console.warn('[BookViewer] could not open document:', err);
+        setError('This book could not be opened. Check the connection and try again.');
         setLoading(false);
       });
 
@@ -66,7 +70,7 @@ export default function BookViewer({
       docRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fileUrl, kind]);
+  }, [fileUrl, kind, attempt]);
 
   // ── Render the current page ───────────────────────────────────────────────
   useEffect(() => {
@@ -125,6 +129,9 @@ export default function BookViewer({
       <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-muted">
         <FileWarning size={34} />
         <p className="text-sm text-center max-w-xs">{error}</p>
+        <button onClick={() => setAttempt((n) => n + 1)} className="btn-secondary text-sm">
+          Try again
+        </button>
       </div>
     );
   }
