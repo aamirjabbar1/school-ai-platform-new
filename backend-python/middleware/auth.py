@@ -50,18 +50,40 @@ async def get_current_user(
 # one purpose, so a URL that leaks into a log or a chat message is worth almost
 # nothing and expires within minutes.
 
+def _stable_expiry(minutes: int) -> datetime:
+    """An expiry on a fixed clock boundary, so the same token comes back.
+
+    A token whose expiry is "now plus fifteen minutes" is a different token
+    every time it is asked for, and it is carried in the URL of the textbook a
+    browser fetches. A different URL is a cache miss, so a student who drops
+    out and rejoins downloads a book their browser already has.
+
+    Quantising the expiry to a boundary makes the token — and so the URL —
+    identical for everyone who asks within the same window. It is still scoped
+    and still short-lived; it is simply the same short-lived token for a few
+    minutes at a time. The next window is entered early enough that a token is
+    never handed out with less than half its life left.
+    """
+    window = timedelta(minutes=minutes)
+    now = datetime.utcnow()
+    epoch = datetime(1970, 1, 1)
+    expiry = epoch + window * (int((now - epoch) / window) + 1)
+    return expiry + window if expiry - now < window / 2 else expiry
+
+
 def create_scoped_token(
     user_id: str,
     *,
     scope: str,
     session_id: str,
     minutes: int = 15,
+    stable: bool = False,
 ) -> str:
     payload = {
         "id": user_id,
         "scope": scope,
         "sid": session_id,
-        "exp": datetime.utcnow() + timedelta(minutes=minutes),
+        "exp": _stable_expiry(minutes) if stable else datetime.utcnow() + timedelta(minutes=minutes),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm="HS256")
 

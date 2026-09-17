@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -227,6 +228,19 @@ def read_object_range(object_name: str, offset: int, length: int) -> bytes:
         response.release_conn()
 
 
+# A book is fetched a range at a time, and every one of those used to ask
+# storage how big the file is before reading a byte of it — a second round trip
+# per chunk, for a number that cannot change while a class is being taught.
+_size_cache: dict[str, tuple[float, int]] = {}
+_SIZE_TTL_SECONDS = 300
+
+
 def object_size(object_name: str) -> int:
+    cached = _size_cache.get(object_name)
+    now = time.monotonic()
+    if cached and now - cached[0] < _SIZE_TTL_SECONDS:
+        return cached[1]
     stat = storage_service.get_client().stat_object(storage_service.MINIO_BUCKET, object_name)
-    return int(stat.size)
+    size = int(stat.size)
+    _size_cache[object_name] = (now, size)
+    return size

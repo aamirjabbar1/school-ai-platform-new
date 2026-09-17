@@ -355,12 +355,18 @@ async def resource_token(
     Separate from the session token because a PDF viewer cannot send our
     Authorization header, and a session token in a URL would be a session token
     in somebody's browser history.
+
+    Stable within a window, because this token ends up in the URL of the
+    textbook the browser downloads: a token that changed on every join made
+    every rejoin a cache miss, and a class re-fetched a book it already had.
     """
     session = await get_session(db, session_id)
     require_member(session, user)
     return {
-        "token": create_scoped_token(user.id, scope="resource", session_id=session.id, minutes=30),
-        "expires_in": 1800,
+        "token": create_scoped_token(
+            user.id, scope="resource", session_id=session.id, minutes=30, stable=True,
+        ),
+        "expires_in": 900,
     }
 
 
@@ -430,7 +436,7 @@ async def resource_file(
                 "Content-Range": f"bytes {start}-{end}/{size}",
                 "Accept-Ranges": "bytes",
                 "Content-Length": str(length),
-                "Cache-Control": "private, max-age=3600",
+                "Cache-Control": "private, max-age=86400, immutable",
             },
         )
 
@@ -441,7 +447,7 @@ async def resource_file(
         headers={
             "Accept-Ranges": "bytes",
             "Content-Length": str(len(data)),
-            "Cache-Control": "private, max-age=3600",
+            "Cache-Control": "private, max-age=86400, immutable",
         },
     )
 

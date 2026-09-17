@@ -137,6 +137,22 @@ export default function BookViewer({
 
   useEffect(() => { renderPage(); }, [renderPage, pageCount]);
 
+  // Fetch the page after this one while the class is looking at this one.
+  // Only what the book needs to draw it, and only once the current page is on
+  // screen, so a teacher turning a page in front of thirty children waits for
+  // nothing. Failures are beneath notice: this is a guess about what comes
+  // next, and the page turn itself would fetch it anyway.
+  useEffect(() => {
+    const doc = docRef.current;
+    if (kind !== 'pdf' || !doc || loading) return undefined;
+    const next = page + 1;
+    if (next > doc.numPages) return undefined;
+    const ahead = setTimeout(() => {
+      doc.getPage(next).then((p) => p.getOperatorList?.()).catch(() => {});
+    }, 400);
+    return () => clearTimeout(ahead);
+  }, [page, kind, loading, pageCount]);
+
   // Turning a phone on its side changes the width the page should be drawn to.
   useEffect(() => {
     const box = scrollRef.current;

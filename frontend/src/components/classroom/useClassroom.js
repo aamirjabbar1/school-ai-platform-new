@@ -283,6 +283,14 @@ export default function useClassroom({ sessionId, role }) {
     setStatus('connecting');
     setError('');
     try {
+      // Asked for first and waited on last. A student rejoining mid-lesson
+      // lands on an open book, and the book cannot begin loading until this
+      // key exists — so it is fetched alongside the join rather than after the
+      // room, the microphone and the camera have all finished negotiating.
+      const keyReady = onlineClassAPI.resourceToken(sessionId)
+        .then(({ data: rt }) => setResourceToken(rt.token))
+        .catch(() => { /* books simply will not open until the next refresh */ });
+
       const { data } = isObserver
         ? await liveClassAdminAPI.observe(sessionId)
         : await onlineClassAPI.join(sessionId);
@@ -378,11 +386,7 @@ export default function useClassroom({ sessionId, role }) {
       refreshState();
       loadSnapshot();
 
-      // Key for the browser's own fetches (textbook pages, images).
-      try {
-        const { data: rt } = await onlineClassAPI.resourceToken(sessionId);
-        setResourceToken(rt.token);
-      } catch { /* books simply will not open until the next refresh */ }
+      await keyReady;
     } catch (err) {
       setError(apiError(err, 'Could not connect to the class.'));
       setStatus('error');
