@@ -26,9 +26,9 @@ import {
 //   * Nothing decorative may touch the video. A phone draws video on its own
 //     GPU layer, and a rounded `overflow:hidden` parent, a faded sibling or a
 //     frosted-glass neighbour drags it back into the page, where some devices
-//     simply do not draw it: sound plays and the picture is black. The frame
-//     is therefore built by hand — so its own styling is ours, and nothing in
-//     it rounds, fades or blurs.
+//     simply do not draw it: sound plays and the picture is black. So the box
+//     around the video rounds nothing, fades nothing and blurs nothing, and
+//     the frame is stripped of its own radius after YouTube builds it.
 
 const YT_STATE = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 };
 
@@ -72,38 +72,28 @@ function loadYouTubeApi() {
   return apiPromise;
 }
 
-// The frame the class watches. Built here rather than by YT.Player's div
-// replacement so that its styling, its `allow` list and `playsinline` are ours
-// to set — `playsinline` being what stops an iPhone tearing the video out of
-// the lesson into its own fullscreen player.
-function buildFrame(videoId, { editable, start }) {
-  const params = new URLSearchParams({
-    enablejsapi: '1',
-    playsinline: '1',
-    rel: '0',
-    modestbranding: '1',
-    iv_load_policy: '3',
-    // Students follow the teacher; their controls would only fight it.
-    controls: editable ? '1' : '0',
-    disablekb: editable ? '0' : '1',
-    fs: editable ? '1' : '0',
-    start: String(Math.max(0, Math.floor(start || 0))),
-    origin: window.location.origin,
-  });
-
-  const frame = document.createElement('iframe');
-  // The API addresses an existing frame by id, so it needs one of its own.
-  frame.id = `class-video-${Math.random().toString(36).slice(2, 10)}`;
-  frame.src = `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`;
-  frame.title = 'Class video';
-  frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen; accelerometer; gyroscope';
-  frame.allowFullscreen = true;
-  frame.setAttribute('playsinline', '');
-  frame.setAttribute('frameborder', '0');
-  // No radius and no transform of its own: both would put this frame back on a
-  // layer the phone has to redraw by hand, which is where the picture is lost.
-  frame.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;display:block';
-  return frame;
+// The frame is built by YouTube's own API, not by hand.
+//
+// It was hand-built here for a while, to control its styling. That was a
+// mistake, and an instructive one: the API's frame also carries
+// `referrerpolicy="strict-origin-when-cross-origin"`, and a phone whose
+// browser strips cross-site referrers — Samsung Internet, Brave, Firefox and
+// Chrome with tracking protection all do — then reaches YouTube with no
+// referrer at all and is answered with a player configuration error. Which
+// looks, in a classroom, like a blank white rectangle.
+//
+// So the API builds it, and only its layout is adjusted afterwards: filling
+// the box, and carrying no radius or transform of its own, because both put
+// the video back on a layer the phone has to redraw by hand.
+function layOutFrame(frame) {
+  if (!frame) return;
+  frame.style.position = 'absolute';
+  frame.style.inset = '0';
+  frame.style.width = '100%';
+  frame.style.height = '100%';
+  frame.style.border = '0';
+  frame.style.borderRadius = '0';
+  frame.style.display = 'block';
 }
 
 function expectedPosition(target) {
@@ -253,14 +243,32 @@ export default function VideoStage({
         loadedIdRef.current = target.videoId;
         reportedRef.current = { playing: target.playing, position: start, at: Date.now() };
 
-        const frame = buildFrame(target.videoId, { editable, start });
-        hostRef.current.appendChild(frame);
+        // The API replaces this element with its own iframe.
+        const mount = document.createElement('div');
+        hostRef.current.appendChild(mount);
 
-        player = new YT.Player(frame, {
+        player = new YT.Player(mount, {
+          host: 'https://www.youtube-nocookie.com',
+          videoId: target.videoId,
+          width: '100%',
+          height: '100%',
+          playerVars: {
+            playsinline: 1,
+            rel: 0,
+            modestbranding: 1,
+            iv_load_policy: 3,
+            // Students follow the teacher; their controls would only fight it.
+            controls: editable ? 1 : 0,
+            disablekb: editable ? 0 : 1,
+            fs: editable ? 1 : 0,
+            start: Math.floor(start),
+            origin: window.location.origin,
+          },
           events: {
             onReady: () => {
               if (cancelled) return;
               playerRef.current = player;
+              layOutFrame(player.getIframe?.());
               clearTimeout(slowTimer);
               setStatus('ready');
               const now = targetRef.current;
@@ -279,6 +287,9 @@ export default function VideoStage({
             },
           },
         });
+        // The frame exists as soon as the constructor returns, so it is laid
+        // out now rather than only once the player answers.
+        layOutFrame(player.getIframe?.());
       })
       .catch(() => { if (!cancelled) setStatus('unavailable'); });
 
@@ -655,7 +666,8 @@ export default function VideoStage({
                           rounded-xl bg-amber-500/90 text-slate-950 text-xs font-semibold text-center">
             <span>
               {editable
-                ? 'This video is slow to answer. Use the controls in the video itself, or try again.'
+                ? 'This video has not answered. Use the controls in the video itself, or try again. '
+                  + 'If it stays blank, this browser may be blocking YouTube — try Chrome.'
                 : 'This video is slow to answer — it may not follow your teacher exactly.'}
             </span>
             {editable && (
