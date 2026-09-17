@@ -43,6 +43,11 @@ const BLOCKED_AFTER_MS = 4500;   // even silent play refused → the class must 
 const IGNORE_SYNC_MS = 1500;     // a heartbeat sent before a pause must not undo it
 const READY_TIMEOUT_MS = 9000;   // a frame that never loads must say so
 
+// TEMPORARY. Share Video has to work on phones none of us can attach a
+// debugger to, so while that is being settled the stage says out loud what it
+// thinks is happening, on both sides. Turn this off once the picture is good.
+const SHOW_DIAGNOSTICS = true;
+
 let apiPromise = null;
 
 function loadYouTubeApi() {
@@ -141,6 +146,8 @@ export default function VideoStage({
   // those are hard to hit, and on some browsers they are covered entirely.
   const [teacherState, setTeacherState] = useState({ playing: false, position: 0, duration: 0 });
   const [details, setDetails] = useState('');
+  // null while unknown, then whether YouTube can be reached from this device.
+  const [reachable, setReachable] = useState(null);
   // With data saver on, a student chooses to spend data on a video.
   const [started, setStarted] = useState(editable || !lowBandwidth);
 
@@ -162,6 +169,23 @@ export default function VideoStage({
     };
     ignoreSyncUntilRef.current = Date.now() + IGNORE_SYNC_MS;
   }, [videoId, video?.playing, video?.position, video?.updated_at]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Can this device reach YouTube at all? ─────────────────────────────────
+  //
+  // Asked plainly, with the video's own thumbnail, because a blocked or
+  // filtered network — common on mobile data and on school connections — gives
+  // a blank frame and no error a browser will hand us. Without this the class
+  // stares at a white rectangle and everyone blames the lesson software.
+  useEffect(() => {
+    if (!videoId) return undefined;
+    let cancelled = false;
+    setReachable(null);
+    const probe = new Image();
+    probe.onload = () => { if (!cancelled) setReachable(true); };
+    probe.onerror = () => { if (!cancelled) setReachable(false); };
+    probe.src = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    return () => { cancelled = true; probe.onload = null; probe.onerror = null; };
+  }, [videoId]);
 
   // ── …and from the teacher's heartbeat, between those moments ──────────────
   useEffect(() => {
@@ -513,6 +537,8 @@ export default function VideoStage({
     };
     return [
       status,
+      `yt ${reachable === null ? 'testing' : reachable ? 'reachable' : 'BLOCKED'}`,
+      `id ${videoId || 'none'}`,
       `state ${ask(() => player?.getPlayerState?.())}`,
       `quality ${ask(() => player?.getPlaybackQuality?.())}`,
       `loaded ${ask(() => Math.round((player?.getVideoLoadedFraction?.() || 0) * 100))}%`,
@@ -522,6 +548,17 @@ export default function VideoStage({
     ].join(' · ');
   };
 
+  useEffect(() => {
+    if (!SHOW_DIAGNOSTICS || !started || !hasVideo) return undefined;
+    const tick = () => setDetails(describe());
+    tick();
+    const timer = setInterval(tick, 1000);
+    return () => clearInterval(timer);
+    // `describe` reads the current render's state, so it is refreshed whenever
+    // any of that changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [started, hasVideo, status, reachable, blocked, soundOff]);
+
   const retry = () => {
     // Rebuilding is the only cure for a frame that never answered; flipping
     // `started` off and on again re-runs the effect that creates it.
@@ -530,7 +567,16 @@ export default function VideoStage({
   };
 
   if (!hasVideo) {
-    return <Message>No video is being shared.</Message>;
+    return (
+      <Message>
+        No video is being shared.
+        {SHOW_DIAGNOSTICS && (
+          <span className="block mt-2 text-[10px] text-faint select-all">
+            {editable ? 'teacher' : 'student'} · no video in the stage state
+          </span>
+        )}
+      </Message>
+    );
   }
 
   if (!started) {
@@ -544,8 +590,16 @@ export default function VideoStage({
     );
   }
 
+  // A device that cannot fetch a thumbnail will not be playing a video either.
+  // Say so in the words that point at the actual cause, rather than leaving a
+  // blank frame for a teacher to interpret mid-lesson.
+  const unreachable = reachable === false
+    ? 'YouTube cannot be opened on this device. Its network or a content filter is blocking '
+      + 'YouTube — mobile data and school connections often do. Try a different network.'
+    : null;
+
   // A fatal problem replaces the video; nothing is playing behind it.
-  const problem = {
+  const problem = unreachable || {
     unavailable: 'YouTube could not be reached on this connection.',
     'no-embed': editable
       ? 'The owner of this video does not allow it to be played in other websites. Please choose a different video.'
@@ -690,14 +744,10 @@ export default function VideoStage({
             <RotateCcw size={18} />
           </button>
 
-          <button
-            onClick={() => setDetails(details ? '' : describe())}
-            className="text-xs text-muted tabular-nums"
-            title="Tap for video details"
-          >
+          <span className="text-xs text-muted tabular-nums">
             {clock(teacherState.position)}
             {teacherState.duration ? ` / ${clock(teacherState.duration)}` : ''}
-          </button>
+          </span>
 
           <span className="text-xs text-muted ml-auto hidden sm:inline">
             {status !== 'ready'
@@ -717,9 +767,17 @@ export default function VideoStage({
             </button>
           )}
 
-          {details && (
-            <span className="w-full text-[11px] text-faint break-all select-all">{details}</span>
-          )}
+        </div>
+      )}
+
+      {/* TEMPORARY — while Share Video is being made to work on real phones.
+          Neither of us can attach a debugger to the devices this has to run on,
+          so the page says out loud what it thinks is happening. Delete this
+          strip, SHOW_DIAGNOSTICS and `describe()` once the picture is good. */}
+      {SHOW_DIAGNOSTICS && details && (
+        <div className="shrink-0 text-[10px] leading-tight text-faint break-all select-all
+                        bg-surface-2 border border-line rounded-xl px-2 py-1">
+          {editable ? 'teacher' : 'student'} · {details}
         </div>
       )}
     </div>
