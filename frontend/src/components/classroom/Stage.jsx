@@ -83,6 +83,7 @@ export default function Stage({
           lowBandwidth={classroom.lowBandwidth}
           onReport={editable ? classroom.reportVideo : undefined}
           onProgress={editable ? classroom.sendVideoProgress : undefined}
+          onStop={editable ? () => changeStage('camera', null) : undefined}
         />
       );
 

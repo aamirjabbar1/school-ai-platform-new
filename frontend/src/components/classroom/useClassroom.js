@@ -435,15 +435,20 @@ export default function useClassroom({ sessionId, role }) {
     const room = roomRef.current;
     if (!room) return { ok: false, reason: 'not-connected' };
 
+    // Stopping is never allowed to fail: the button that started the share is
+    // the only way back, so it must work even if the browser has already torn
+    // the capture down underneath us.
     if (screenSharing) {
       stoppingShareRef.current = true;
       try {
         await room.localParticipant.setScreenShareEnabled(false);
-      } finally {
+      } catch { /* the capture had already ended */ } finally {
         stoppingShareRef.current = false;
       }
       setScreenSharing(false);
-      await onlineClassAPI.share(sessionId, { active: false, source: 'screen' });
+      try {
+        await onlineClassAPI.share(sessionId, { active: false, source: 'screen' });
+      } catch { /* the next state poll corrects the stage */ }
       return { ok: true };
     }
 
@@ -519,16 +524,29 @@ export default function useClassroom({ sessionId, role }) {
     const room = roomRef.current;
     if (!room) return { ok: false };
 
-    try {
-      if (docCameraOn) {
-        await room.localParticipant.setCameraEnabled(false);
+    // Turning it off must always succeed. The rear camera is released first,
+    // and only then is the front one asked for: if that fails (a phone that
+    // will not hand the camera back, a laptop with none), the class still
+    // leaves the document-camera view. Otherwise a teacher who pressed the
+    // wrong button would be stuck showing their desk for the rest of the
+    // lesson with no way back.
+    if (docCameraOn) {
+      try { await room.localParticipant.setCameraEnabled(false); } catch { /* already gone */ }
+      setDocCameraOn(false);
+      let restored = true;
+      try {
         await room.localParticipant.setCameraEnabled(true);
-        setDocCameraOn(false);
-        setCameraOn(true);
-        await onlineClassAPI.share(sessionId, { active: false, source: 'document_camera' });
-        return { ok: true };
+      } catch {
+        restored = false;
       }
+      setCameraOn(restored);
+      try {
+        await onlineClassAPI.share(sessionId, { active: false, source: 'document_camera' });
+      } catch { /* the next state poll corrects the stage */ }
+      return { ok: true, cameraRestored: restored };
+    }
 
+    try {
       await room.localParticipant.setCameraEnabled(false);
       const track = await createLocalVideoTrack({
         facingMode: 'environment',

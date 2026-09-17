@@ -142,8 +142,26 @@ export default function TeacherClassroom() {
 
   const showPhysicalBook = async () => {
     const result = await toggleDocumentCamera();
-    if (!result.ok) setNotice('Could not switch to the rear camera on this device.');
+    if (!result.ok) {
+      setNotice('Could not switch to the rear camera on this device.');
+    } else if (result.cameraRestored === false) {
+      setNotice('Show Book is off. Your front camera did not come back on — press Start video.');
+    }
   };
+
+  // ── Every tool closes the way it opened ───────────────────────────────────
+  //
+  // Press a tool again and the class goes back to the teacher's camera. A
+  // teacher who opens the wrong thing mid-lesson — and in a live class that
+  // happens — must be able to undo it with the same button, not by leaving the
+  // classroom and coming back with thirty children watching.
+  const backToCamera = () => changeStage('camera', null);
+
+  const openWhiteboard = () => (
+    stage.mode === 'whiteboard' ? backToCamera() : changeStage('whiteboard', { page: board.pageIndex })
+  );
+  const openBook = () => (stage.mode === 'book' ? backToCamera() : setPickerOpen(true));
+  const openVideo = () => (stage.mode === 'video' ? backToCamera() : setVideoOpen(true));
 
   if (showAttendanceOnly) {
     return <AttendanceReport sessionId={sessionId} onBack={() => navigate('/teacher/online-classes')} />;
@@ -255,12 +273,12 @@ export default function TeacherClassroom() {
         <div className="flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
           <Tool
             icon={PenLine} label="Whiteboard" active={stage.mode === 'whiteboard'}
-            onClick={() => changeStage('whiteboard', { page: board.pageIndex })}
+            onClick={openWhiteboard}
           />
           <Tool icon={BookOpen} label="Open Book" active={stage.mode === 'book'}
-                onClick={() => setPickerOpen(true)} />
+                onClick={openBook} />
           <Tool icon={Clapperboard} label="Share Video" active={stage.mode === 'video'}
-                onClick={() => setVideoOpen(true)} />
+                onClick={openVideo} />
           <Tool icon={MonitorUp} label="Share Screen" active={screenSharing} onClick={shareScreen} />
           <Tool icon={Presentation} label="Show Book" active={docCameraOn} onClick={showPhysicalBook} />
           <Tool icon={Camera} label="Camera view" active={stage.mode === 'camera'}
@@ -414,6 +432,7 @@ function Tool({ icon: Icon, label, onClick, active, danger, busy }) {
     <button
       onClick={onClick}
       disabled={busy}
+      title={active ? `${label} — press again to close` : label}
       className={`flex flex-col items-center gap-1 px-3.5 py-2.5 rounded-2xl min-w-[4.5rem] ${tone}
                   transition-transform hover:-translate-y-0.5 disabled:opacity-60`}
     >

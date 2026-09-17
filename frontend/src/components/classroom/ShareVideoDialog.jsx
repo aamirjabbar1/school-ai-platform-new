@@ -51,8 +51,9 @@ export default function ShareVideoDialog({ open, onClose, onShare, onResume, has
             </div>
 
             <p className="text-sm text-muted mb-3">
-              Paste a YouTube link. The video plays on every student&apos;s screen with its sound,
-              and pauses when you pause. Press play when you are ready.
+              Paste a YouTube link. The video opens inside the classroom, and plays on every
+              student&apos;s screen with its sound. Press <strong>Play for the class</strong> under
+              the video when you are ready; it pauses for everyone when you pause.
             </p>
 
             <form onSubmit={submit} className="space-y-3">
@@ -80,7 +81,8 @@ export default function ShareVideoDialog({ open, onClose, onShare, onResume, has
 
             <p className="text-xs text-faint mt-3">
               Tip: if your microphone is on and the video plays from your speaker, students may hear
-              it twice. Headphones avoid that.
+              it twice. Headphones avoid that. On phones, a student may see “Tap for sound” the
+              first time — their browser asks before playing sound, and one tap answers it.
             </p>
           </motion.div>
         </div>
