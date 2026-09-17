@@ -11,7 +11,25 @@ import { API_ORIGIN } from '../../services/api';
 // follows automatically — book, board, video, shared screen or camera. Students never
 // choose what to watch; a nine-year-old should not have to work out which tile
 // is the lesson.
-export default function Stage({
+//
+// The surfaces below all size themselves with `w-full h-full`, which only
+// means anything inside a box of a known height. The classroom's stage is a
+// flex item whose height comes from `min-height` and from growing, so its own
+// height stays `auto` — and a percentage resolved against `auto` is not 45vh,
+// it is nothing. On a phone that made every surface here exactly nothing tall:
+// a video that was loading, playing and unmuted, and 0 pixels high. A desktop
+// escaped it, because there the stage is a *row* flex item and gets stretched
+// to a real height. Filling this positioned box asks no question that `auto`
+// can answer.
+export default function Stage(props) {
+  return (
+    <div className="absolute inset-0">
+      <Surface {...props} />
+    </div>
+  );
+}
+
+function Surface({
   classroom, sessionId, editable, boardRef, onSaveBoard, savingBoard,
 }) {
   const {

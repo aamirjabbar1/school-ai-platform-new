@@ -625,7 +625,17 @@ export default function VideoStage({
   const slow = status === 'slow';
 
   return (
-    <div className="w-full h-full flex flex-col gap-2 min-h-0">
+    // `absolute inset-0`, not `h-full`.
+    //
+    // This is what was wrong all along. The stage sits in a flex item whose
+    // height comes from `min-height` and from flex growth, so its own `height`
+    // stays `auto` — and a percentage height resolved against `auto` is not
+    // 45vh, it is nothing. On a desktop the stage is a *row* flex item, which
+    // is stretched to a real height, so `h-full` worked there and only there.
+    // Every phone got a player that was loading, playing, unmuted and 0 pixels
+    // tall. Filling a positioned parent asks no question that can be answered
+    // with "auto".
+    <div className="absolute inset-0 flex flex-col gap-2">
       {/* Nothing may clip, round, fade or blur this box.
           On a phone the video is drawn by the GPU on a layer of its own, and a
           rounded `overflow:hidden` parent, an `opacity` sibling or a frosted

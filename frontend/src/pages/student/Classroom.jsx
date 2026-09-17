@@ -117,7 +117,7 @@ export default function StudentClassroom() {
 
       {/* Roughly four-fifths of the screen is the lesson itself */}
       <main className="flex-1 p-2 sm:p-3 lg:p-5 flex flex-col lg:flex-row gap-3 min-h-0">
-        <div className="flex-1 min-h-[45vh] lg:min-h-0">
+        <div className="relative flex-1 min-h-[45vh] lg:min-h-0">
           <Stage classroom={classroom} sessionId={sessionId} editable={false} />
         </div>
 

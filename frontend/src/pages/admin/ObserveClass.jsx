@@ -70,7 +70,7 @@ export default function ObserveClass() {
       </header>
 
       <main className="flex-1 p-3 lg:p-5 flex flex-col lg:flex-row gap-3 min-h-0">
-        <div className="flex-1 min-h-[45vh] lg:min-h-0">
+        <div className="relative flex-1 min-h-[45vh] lg:min-h-0">
           <Stage classroom={classroom} sessionId={sessionId} editable={false} />
         </div>
 
