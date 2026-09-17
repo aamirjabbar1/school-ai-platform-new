@@ -16,19 +16,22 @@ import {
 // step if they drift. Small differences are tolerated on purpose — seeking a
 // buffering video on a slow line would stall it for good.
 //
-// Two rules decide almost everything here, and both were learned from phones
-// in real classrooms rather than from the documentation:
+// One rule decides most of what is here, and it came from phones in real
+// classrooms rather than from the documentation: a picture beats silence.
+// When a browser refuses to start a video with sound — every mobile browser
+// does, until the page has been touched — the video is started muted and the
+// class is offered one tap for sound, rather than being left watching nothing.
 //
-//   * A picture beats silence. When a browser refuses to start a video with
-//     sound — every mobile browser does, until the page has been touched —
-//     the video is started muted and the class is offered one tap for sound,
-//     rather than being left watching nothing.
-//   * Nothing decorative may touch the video. A phone draws video on its own
-//     GPU layer, and a rounded `overflow:hidden` parent, a faded sibling or a
-//     frosted-glass neighbour drags it back into the page, where some devices
-//     simply do not draw it: sound plays and the picture is black. So the box
-//     around the video rounds nothing, fades nothing and blurs nothing, and
-//     the frame is stripped of its own radius after YouTube builds it.
+// A note for whoever debugs this next, because it cost several rounds of
+// wrong answers. When this showed nothing on phones and worked on desktops,
+// the cause was not any of the things it looked like — not autoplay policy,
+// not the frame, not the referrer, not GPU compositing. The stage had no
+// height (see Stage.jsx). The video was playing, in sync and unmuted the whole
+// time. If this ever goes dark again, measure the box before theorising about
+// browsers: `getBoundingClientRect()` on the host would have ended it in a
+// minute. The square corners and solid controls below are left over from one
+// of those wrong answers; they are harmless, and cheap insurance on the
+// devices where clipping a video layer genuinely does misbehave.
 
 const YT_STATE = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 };
 
@@ -42,11 +45,6 @@ const MUTED_AFTER_MS = 1600;     // sound refused → play it silently instead
 const BLOCKED_AFTER_MS = 4500;   // even silent play refused → the class must tap
 const IGNORE_SYNC_MS = 1500;     // a heartbeat sent before a pause must not undo it
 const READY_TIMEOUT_MS = 9000;   // a frame that never loads must say so
-
-// TEMPORARY. Share Video has to work on phones none of us can attach a
-// debugger to, so while that is being settled the stage says out loud what it
-// thinks is happening, on both sides. Turn this off once the picture is good.
-const SHOW_DIAGNOSTICS = true;
 
 let apiPromise = null;
 
@@ -82,9 +80,8 @@ function loadYouTubeApi() {
 // referrer at all and is answered with a player configuration error. Which
 // looks, in a classroom, like a blank white rectangle.
 //
-// So the API builds it, and only its layout is adjusted afterwards: filling
-// the box, and carrying no radius or transform of its own, because both put
-// the video back on a layer the phone has to redraw by hand.
+// So the API builds it, and only its layout is adjusted afterwards, to fill
+// the box it is given.
 function layOutFrame(frame) {
   if (!frame) return;
   frame.style.position = 'absolute';
@@ -135,7 +132,6 @@ export default function VideoStage({
   // these buttons, not from the small controls inside the video: on a phone
   // those are hard to hit, and on some browsers they are covered entirely.
   const [teacherState, setTeacherState] = useState({ playing: false, position: 0, duration: 0 });
-  const [details, setDetails] = useState('');
   // null while unknown, then whether YouTube can be reached from this device.
   const [reachable, setReachable] = useState(null);
   // With data saver on, a student chooses to spend data on a video.
@@ -531,45 +527,6 @@ export default function VideoStage({
     teacherSeekTo((player.getCurrentTime?.() || 0) + delta);
   }, [teacherSeekTo]);
 
-  // One line the teacher can read out when a video still misbehaves on a
-  // device none of us can put our hands on. Hidden until the clock is tapped,
-  // so it costs a working lesson nothing.
-  const describe = () => {
-    const player = playerRef.current;
-    const box = hostRef.current;
-    const frame = box?.firstElementChild;
-    const ask = (fn, fallback = '?') => {
-      try { const value = fn(); return value === undefined || value === null ? fallback : value; }
-      catch { return fallback; }
-    };
-    const size = (element) => {
-      const rect = element?.getBoundingClientRect();
-      return rect ? `${Math.round(rect.width)}×${Math.round(rect.height)}` : 'none';
-    };
-    return [
-      status,
-      `yt ${reachable === null ? 'testing' : reachable ? 'reachable' : 'BLOCKED'}`,
-      `id ${videoId || 'none'}`,
-      `state ${ask(() => player?.getPlayerState?.())}`,
-      `quality ${ask(() => player?.getPlaybackQuality?.())}`,
-      `loaded ${ask(() => Math.round((player?.getVideoLoadedFraction?.() || 0) * 100))}%`,
-      `muted ${ask(() => String(!!player?.isMuted?.()))}`,
-      `box ${size(box)}`,
-      `frame ${size(frame)}`,
-    ].join(' · ');
-  };
-
-  useEffect(() => {
-    if (!SHOW_DIAGNOSTICS || !started || !hasVideo) return undefined;
-    const tick = () => setDetails(describe());
-    tick();
-    const timer = setInterval(tick, 1000);
-    return () => clearInterval(timer);
-    // `describe` reads the current render's state, so it is refreshed whenever
-    // any of that changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [started, hasVideo, status, reachable, blocked, soundOff]);
-
   const retry = () => {
     // Rebuilding is the only cure for a frame that never answered; flipping
     // `started` off and on again re-runs the effect that creates it.
@@ -578,16 +535,7 @@ export default function VideoStage({
   };
 
   if (!hasVideo) {
-    return (
-      <Message>
-        No video is being shared.
-        {SHOW_DIAGNOSTICS && (
-          <span className="block mt-2 text-[10px] text-faint select-all">
-            {editable ? 'teacher' : 'student'} · no video in the stage state
-          </span>
-        )}
-      </Message>
-    );
+    return <Message>No video is being shared.</Message>;
   }
 
   if (!started) {
@@ -636,14 +584,10 @@ export default function VideoStage({
     // tall. Filling a positioned parent asks no question that can be answered
     // with "auto".
     <div className="absolute inset-0 flex flex-col gap-2">
-      {/* Nothing may clip, round, fade or blur this box.
-          On a phone the video is drawn by the GPU on a layer of its own, and a
-          rounded `overflow:hidden` parent, an `opacity` sibling or a frosted
-          neighbour forces it back into the page — which, on a good many Android
-          and iOS devices, is a black rectangle with working sound. That is
-          exactly what a class saw here. Square corners are a small price.
-          The poster is a background image rather than an element for the same
-          reason: one less layer over the video. */}
+      {/* Square and unclipped, and the poster is a background rather than an
+          element sitting over the video. Some phones do lose a video layer to
+          a rounded `overflow:hidden` parent, so this is left as it is; it is
+          not what was wrong here, and the corners are not worth a risk. */}
       <div
         className="relative flex-1 min-h-0"
         style={{
@@ -789,17 +733,6 @@ export default function VideoStage({
             </button>
           )}
 
-        </div>
-      )}
-
-      {/* TEMPORARY — while Share Video is being made to work on real phones.
-          Neither of us can attach a debugger to the devices this has to run on,
-          so the page says out loud what it thinks is happening. Delete this
-          strip, SHOW_DIAGNOSTICS and `describe()` once the picture is good. */}
-      {SHOW_DIAGNOSTICS && details && (
-        <div className="shrink-0 text-[10px] leading-tight text-faint break-all select-all
-                        bg-surface-2 border border-line rounded-xl px-2 py-1">
-          {editable ? 'teacher' : 'student'} · {details}
         </div>
       )}
     </div>
