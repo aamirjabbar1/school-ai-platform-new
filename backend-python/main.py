@@ -142,6 +142,15 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Without this a browser hides these headers from the page, and a PDF
+    # viewer that cannot see `Accept-Ranges` or `Content-Range` concludes the
+    # server has no range support and downloads the whole book before showing
+    # page one. On a textbook over a home connection that is minutes of a
+    # lesson spent watching a spinner, every time anyone opens or rejoins.
+    expose_headers=["Accept-Ranges", "Content-Range", "Content-Length", "Content-Disposition"],
+    # Range requests come in flights; re-asking permission for each one adds a
+    # round trip per chunk.
+    max_age=3600,
 )
 
 # Serve remaining local uploads (submissions still use local filesystem)
