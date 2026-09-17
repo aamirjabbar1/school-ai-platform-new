@@ -16,17 +16,19 @@ import {
 // step if they drift. Small differences are tolerated on purpose — seeking a
 // buffering video on a slow line would stall it for good.
 //
-// Two rules decide almost everything here, and both come from phones:
+// Two rules decide almost everything here, and both were learned from phones
+// in real classrooms rather than from the documentation:
 //
-//   * The frame is built by hand, not by the YouTube API's own div-to-iframe
-//     helper, so it can carry `allow="autoplay; encrypted-media"`. A
-//     cross-origin frame without that permission is refused permission to
-//     start playing at all, which is a black rectangle and no sound on exactly
-//     the devices this feature exists for.
 //   * A picture beats silence. When a browser refuses to start a video with
 //     sound — every mobile browser does, until the page has been touched —
 //     the video is started muted and the class is offered one tap for sound,
 //     rather than being left watching nothing.
+//   * Nothing decorative may touch the video. A phone draws video on its own
+//     GPU layer, and a rounded `overflow:hidden` parent, a faded sibling or a
+//     frosted-glass neighbour drags it back into the page, where some devices
+//     simply do not draw it: sound plays and the picture is black. The frame
+//     is therefore built by hand — so its own styling is ours, and nothing in
+//     it rounds, fades or blurs.
 
 const YT_STATE = { UNSTARTED: -1, ENDED: 0, PLAYING: 1, PAUSED: 2, BUFFERING: 3, CUED: 5 };
 
@@ -66,10 +68,9 @@ function loadYouTubeApi() {
 }
 
 // The frame the class watches. Built here rather than by YT.Player's div
-// replacement so that `allow` and `playsinline` are ours to set: without
-// `allow="autoplay"` a phone refuses to let this frame start playing even
-// silently, and without `playsinline` an iPhone rips the video out of the
-// lesson into its own fullscreen player.
+// replacement so that its styling, its `allow` list and `playsinline` are ours
+// to set — `playsinline` being what stops an iPhone tearing the video out of
+// the lesson into its own fullscreen player.
 function buildFrame(videoId, { editable, start }) {
   const params = new URLSearchParams({
     enablejsapi: '1',
@@ -94,7 +95,9 @@ function buildFrame(videoId, { editable, start }) {
   frame.allowFullscreen = true;
   frame.setAttribute('playsinline', '');
   frame.setAttribute('frameborder', '0');
-  frame.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;background:#000';
+  // No radius and no transform of its own: both would put this frame back on a
+  // layer the phone has to redraw by hand, which is where the picture is lost.
+  frame.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;display:block';
   return frame;
 }
 
@@ -137,6 +140,7 @@ export default function VideoStage({
   // these buttons, not from the small controls inside the video: on a phone
   // those are hard to hit, and on some browsers they are covered entirely.
   const [teacherState, setTeacherState] = useState({ playing: false, position: 0, duration: 0 });
+  const [details, setDetails] = useState('');
   // With data saver on, a student chooses to spend data on a video.
   const [started, setStarted] = useState(editable || !lowBandwidth);
 
@@ -404,6 +408,33 @@ export default function VideoStage({
     return () => clearInterval(timer);
   }, [editable, started]);
 
+  // ── Tell the player how big it is ─────────────────────────────────────────
+  //
+  // The YouTube player measures its frame once, as it starts. A frame that was
+  // still being laid out at that moment — which is normal on a phone, where the
+  // address bar moves and the keyboard has just closed — leaves it drawing a
+  // video of the wrong size, or of no size at all. Re-stating the size after it
+  // settles, and whenever the phone is turned, costs nothing and fixes that.
+  useEffect(() => {
+    if (!started || !hasVideo || status !== 'ready') return undefined;
+    const fit = () => {
+      const box = hostRef.current;
+      const player = playerRef.current;
+      if (!box || !player?.setSize) return;
+      const { width, height } = box.getBoundingClientRect();
+      if (width < 1 || height < 1) return;
+      try { player.setSize(Math.round(width), Math.round(height)); } catch { /* not ready */ }
+    };
+    const settle = setTimeout(fit, 700);
+    window.addEventListener('resize', fit);
+    window.addEventListener('orientationchange', fit);
+    return () => {
+      clearTimeout(settle);
+      window.removeEventListener('resize', fit);
+      window.removeEventListener('orientationchange', fit);
+    };
+  }, [started, hasVideo, status]);
+
   const turnSoundOn = () => {
     const player = playerRef.current;
     if (!player) return;
@@ -465,6 +496,32 @@ export default function VideoStage({
     teacherSeekTo((player.getCurrentTime?.() || 0) + delta);
   }, [teacherSeekTo]);
 
+  // One line the teacher can read out when a video still misbehaves on a
+  // device none of us can put our hands on. Hidden until the clock is tapped,
+  // so it costs a working lesson nothing.
+  const describe = () => {
+    const player = playerRef.current;
+    const box = hostRef.current;
+    const frame = box?.firstElementChild;
+    const ask = (fn, fallback = '?') => {
+      try { const value = fn(); return value === undefined || value === null ? fallback : value; }
+      catch { return fallback; }
+    };
+    const size = (element) => {
+      const rect = element?.getBoundingClientRect();
+      return rect ? `${Math.round(rect.width)}×${Math.round(rect.height)}` : 'none';
+    };
+    return [
+      status,
+      `state ${ask(() => player?.getPlayerState?.())}`,
+      `quality ${ask(() => player?.getPlaybackQuality?.())}`,
+      `loaded ${ask(() => Math.round((player?.getVideoLoadedFraction?.() || 0) * 100))}%`,
+      `muted ${ask(() => String(!!player?.isMuted?.()))}`,
+      `box ${size(box)}`,
+      `frame ${size(frame)}`,
+    ].join(' · ');
+  };
+
   const retry = () => {
     // Rebuilding is the only cure for a frame that never answered; flipping
     // `started` off and on again re-runs the effect that creates it.
@@ -504,17 +561,24 @@ export default function VideoStage({
 
   return (
     <div className="w-full h-full flex flex-col gap-2 min-h-0">
-      <div className="relative flex-1 min-h-0 rounded-2xl overflow-hidden bg-black">
-        {/* Behind the frame: the video's own picture. A frame that has not
-            loaded paints blank white, which reads as a broken classroom. This
-            way the worst case still shows which video was shared. */}
-        <img
-          src={`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`}
-          alt=""
-          aria-hidden="true"
-          className="absolute inset-0 w-full h-full object-contain opacity-60"
-          onError={(event) => { event.currentTarget.style.display = 'none'; }}
-        />
+      {/* Nothing may clip, round, fade or blur this box.
+          On a phone the video is drawn by the GPU on a layer of its own, and a
+          rounded `overflow:hidden` parent, an `opacity` sibling or a frosted
+          neighbour forces it back into the page — which, on a good many Android
+          and iOS devices, is a black rectangle with working sound. That is
+          exactly what a class saw here. Square corners are a small price.
+          The poster is a background image rather than an element for the same
+          reason: one less layer over the video. */}
+      <div
+        className="relative flex-1 min-h-0"
+        style={{
+          backgroundColor: '#000',
+          backgroundImage: `url(https://i.ytimg.com/vi/${videoId}/hqdefault.jpg)`,
+          backgroundSize: 'contain',
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'center',
+        }}
+      >
         <div ref={hostRef} className="absolute inset-0" />
 
         {status === 'loading' && (
@@ -592,9 +656,12 @@ export default function VideoStage({
         )}
       </div>
 
-      {/* The teacher drives the class from here, not from inside the video */}
+      {/* The teacher drives the class from here, not from inside the video.
+          Solid, not frosted: a backdrop blur pressed against the video is one
+          of the things that costs a phone the picture. */}
       {editable && (
-        <div className="shrink-0 glass rounded-2xl px-3 py-2 flex items-center gap-2 flex-wrap">
+        <div className="shrink-0 bg-surface-2 border border-line rounded-2xl px-3 py-2
+                        flex items-center gap-2 flex-wrap">
           <button
             onClick={teacherState.playing ? teacherPause : teacherPlay}
             disabled={status !== 'ready'}
@@ -608,7 +675,7 @@ export default function VideoStage({
           <button
             onClick={() => teacherSeekBy(-10)}
             disabled={status !== 'ready'}
-            className="p-2.5 rounded-2xl glass disabled:opacity-50"
+            className="p-2.5 rounded-2xl bg-surface-3 border border-line disabled:opacity-50"
             title="Back 10 seconds"
           >
             <Undo2 size={18} />
@@ -617,16 +684,20 @@ export default function VideoStage({
           <button
             onClick={() => teacherSeekTo(0)}
             disabled={status !== 'ready'}
-            className="p-2.5 rounded-2xl glass disabled:opacity-50"
+            className="p-2.5 rounded-2xl bg-surface-3 border border-line disabled:opacity-50"
             title="Start again from the beginning"
           >
             <RotateCcw size={18} />
           </button>
 
-          <span className="text-xs text-muted tabular-nums">
+          <button
+            onClick={() => setDetails(details ? '' : describe())}
+            className="text-xs text-muted tabular-nums"
+            title="Tap for video details"
+          >
             {clock(teacherState.position)}
             {teacherState.duration ? ` / ${clock(teacherState.duration)}` : ''}
-          </span>
+          </button>
 
           <span className="text-xs text-muted ml-auto hidden sm:inline">
             {status !== 'ready'
@@ -637,9 +708,17 @@ export default function VideoStage({
           </span>
 
           {onStop && (
-            <button onClick={onStop} className="btn-secondary text-sm">
+            <button
+              onClick={onStop}
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-surface-3 border border-line
+                         text-sm font-medium"
+            >
               <X size={16} /> Stop showing
             </button>
+          )}
+
+          {details && (
+            <span className="w-full text-[11px] text-faint break-all select-all">{details}</span>
           )}
         </div>
       )}

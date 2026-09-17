@@ -76,6 +76,15 @@
     font-feature-settings: "rlig" 1, "calt" 1;
     transition: background-color 0.4s ease, color 0.4s ease;
   }
+  /* A fixed background pins the whole page to one painted layer. Phones pay
+     for that in the wrong place: it is one of the things that leaves a playing
+     video drawing nothing but black in a live class. The gradient scrolls
+     instead on small screens, which is not a difference anyone can see. */
+  @media (max-width: 1024px) {
+    body {
+      background-attachment: scroll;
+    }
+  }
   ::selection {
     background: rgb(var(--accent) / 0.28);
   }
