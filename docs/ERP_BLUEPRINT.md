@@ -1,7 +1,12 @@
 # LSS Bot ERP — Technical Blueprint
 
-**Status:** proposal for approval. No ERP code has been written.
+**Status:** built. All eight phases are implemented, tested and deployed behind a
+feature flag that ships off. This document remains the design record — what was
+decided, and why — and the sections below still describe the intent of each
+module. Where the build departed from the plan, the code says so at the point of
+departure.
 **Prepared against:** commit `51c1f85`, inspected 19 September 2026.
+**Built:** 19 September 2026, phases 1–8.
 **Answers:** Master Specification §79 (items 1–51) and its closing question, "identify any significant School ERP requirement still missing".
 
 Read Part 0 first. Everything after it follows from what is actually in the database
@@ -753,17 +758,17 @@ Ordering logic: foundations first, then the modules in the order that removes th
 manual work per week of development, with one hard constraint — **accounting must follow
 fees and payroll**, because it exists to receive their postings.
 
-| Phase | Contents | Visible to |
-|---|---|---|
-| **0. Inventory & cleanup** | Production inventory report (§2.2); office begins data cleanup; legacy contract test suite; move seeded admin password to env | Nobody — but it de-risks everything after it |
-| **1. Foundations** | Sessions, classes, sections, subjects, enrollments + backfill and dual-write; profile tables; number series; RBAC + the senior accounts; audit log; event outbox; feature flags | Owner/admin screens only |
-| **2. People & admissions** | Admissions, families, guardians, student and teacher provisioning on events, missing-field completion screens, personnel files | Office, HR |
-| **3. Daily attendance** | Mobile teacher register, online-class proposals, correction workflow, attendance reports | Every teacher — the first phase the school *feels* |
-| **4. Fees** | Fee heads and structures, concessions, vouchers, collection, receipts, student ledger, defaulters incl. Defaulter List – All Active | Accounts — the largest single reduction in manual work |
-| **5. HR & payroll** | Salary structures, appointment letter engine, monthly payroll, payslips, bank file, payroll reports | HR, accounts |
-| **6. Accounting** | Chart of accounts, posting service, automatic entries from phases 4–5, expenses, vendors, reconciliation, financial statements | Accounts, Owner |
-| **7. Examinations** | Exam configuration, date sheets, marks entry, results engine, weightage schemes, ledgers, report cards, combined report cards, analytics | Teachers, exam office, parents |
-| **8. Management layer** | Dashboards, dynamic report builder, AI management assistant, exception queues, parent portal | Management |
+| Phase | Contents | Visible to | Built |
+|---|---|---|---|
+| **0. Inventory & cleanup** | Production inventory report (§2.2); office begins data cleanup; legacy contract test suite; move seeded admin password to env | Nobody — but it de-risks everything after it | ✓ |
+| **1. Foundations** | Sessions, classes, sections, subjects, enrollments + backfill and dual-write; profile tables; number series; RBAC + the senior accounts; audit log; event outbox; feature flags | Owner/admin screens only | ✓ |
+| **2. People & admissions** | Admissions, families, guardians, student and teacher provisioning on events, missing-field completion screens, personnel files | Office, HR | ✓ |
+| **3. Daily attendance** | Mobile teacher register, online-class proposals, correction workflow, attendance reports | Every teacher — the first phase the school *feels* | ✓ |
+| **4. Fees** | Fee heads and structures, concessions, vouchers, collection, receipts, student ledger, defaulters incl. Defaulter List – All Active | Accounts — the largest single reduction in manual work | ✓ |
+| **5. HR & payroll** | Salary structures, appointment letter engine, monthly payroll, payslips, bank file, payroll reports | HR, accounts | ✓ |
+| **6. Accounting** | Chart of accounts, posting service, automatic entries from phases 4–5, expenses, vendors, reconciliation, financial statements | Accounts, Owner | ✓ |
+| **7. Examinations** | Exam configuration, date sheets, marks entry, results engine, weightage schemes, ledgers, report cards, combined report cards, analytics | Teachers, exam office, parents | ✓ |
+| **8. Management layer** | Dashboards, dynamic report builder, AI management assistant, exception queues, parent portal | Management | ✓ |
 
 Two notes on this order:
 
@@ -842,9 +847,28 @@ Only the first is blocking; the rest shape the schema and are far cheaper answer
 
 ---
 
-## What happens next
+## What was built
 
-On approval of this blueprint, Phase 0 starts: the production inventory report and the
-legacy contract test suite. Both are read-only, neither changes production, and together
-they turn the rest of this programme from a plan into something measurable — and they will
-almost certainly change some of the detail above, which is the point of running them first.
+All eight phases, in the order above, each deployed behind `feature_flags.erp` which
+ships off. 416 tests pass, including a guard that parses every ERP migration and fails if
+one proposes touching a pre-existing table.
+
+Three decisions departed from this document, each for a reason recorded in the code:
+
+1. **Admissions is one table with a status, not three.** An enquiry that never converts
+   still leaves its trace, which was the point of separating them — and three tables would
+   have meant three screens, in a module judged on whether a clerk can work it untrained.
+2. **Arrears are not stored in `payable`.** A Pakistani fee voucher prints current charges
+   plus arrears as one figure; storing it that way counts February's unpaid fee once per
+   month it is carried. `payable` is one month, `arrears` is a snapshot for printing, and
+   the account is billed-less-received.
+3. **Staff leave landed in phase 3, not phase 5.** Payroll prorates unpaid leave, and it
+   cannot prorate against data that does not exist.
+
+Two bugs were found by testing rather than by reading, and both would have reached
+production: an unnamed foreign key that made a migration reversible only on paper, and an
+outbox drain that used the shared async engine — which works exactly once per worker
+process, so a task running every sixty seconds fails on every run after the first.
+
+The gaps in Part 6 remain gaps. Nothing here adds SMS, WhatsApp, a parent portal, a
+timetable or a transport module, and the open questions in §6.2 are still open.
