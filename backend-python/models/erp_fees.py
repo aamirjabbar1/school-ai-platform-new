@@ -189,6 +189,14 @@ class Voucher(Base):
     payable = Column(Numeric(14, 2), nullable=False, default=0)
     paid = Column(Numeric(14, 2), nullable=False, default=0)
 
+    # What the bank scans, and what KuickPay quotes. Held on the voucher
+    # rather than derived, so a reprint is the same piece of paper.
+    challan_no = Column(String(30), nullable=True, index=True)
+    kuickpay_id = Column(String(30), nullable=True, index=True)
+    valid_till = Column(Date, nullable=True)
+    # Which child of the family this is — the sample voucher prints "Child # 1".
+    child_number = Column(Integer, nullable=True)
+
     status = Column(String(20), nullable=False, default=VOUCHER_UNPAID)
     cancelled_reason = Column(String(200), nullable=True)
     generated_by = Column(String(36), ForeignKey("users.id"), nullable=True)
@@ -203,6 +211,8 @@ class Voucher(Base):
             "due_date": self.due_date.isoformat() if self.due_date else None,
             "gross": str(self.gross), "concession": str(self.concession),
             "arrears": str(self.arrears), "late_fee": str(self.late_fee),
+            "challan_no": self.challan_no, "kuickpay_id": self.kuickpay_id,
+            "valid_till": self.valid_till.isoformat() if self.valid_till else None,
             "payable": str(self.payable), "paid": str(self.paid),
             "outstanding": str((self.payable or 0) - (self.paid or 0)),
             # What the parent hands over: this month's charge plus whatever was
@@ -368,4 +378,54 @@ class VoucherRun(Base):
             "created": self.created_count, "skipped": self.skipped_count,
             "total_amount": str(self.total_amount),
             "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class VoucherSettings(Base):
+    """Everything on the printed voucher that is school policy rather than
+    layout — the bank, the account, the campus code, the note, the daily fine.
+
+    A single row. It is here so the office can change a bank account without a
+    deployment, and so the wording of the note stays the school's wording.
+    """
+    __tablename__ = "voucher_settings"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+
+    school_name = Column(String(120), nullable=False, default="Lahore School System")
+    email = Column(String(120), nullable=True, default="info@lss.edu.pk")
+    website = Column(String(120), nullable=True, default="www.lss.edu.pk")
+
+    bank_name = Column(String(80), nullable=True, default="BankIslami")
+    bank_account = Column(String(60), nullable=True)
+    campus_code = Column(String(30), nullable=True)
+    post_to = Column(String(60), nullable=True, default="POST TO CMD")
+    bank_line = Column(String(200), nullable=True)
+
+    note = Column(Text, nullable=True)
+    # Rs per day after the due date. Shown in the note and used to work out the
+    # late fine between the due date and the valid-till date.
+    late_fine_per_day = Column(Numeric(10, 2), nullable=False, default=50)
+    # How long after the due date the bank will still accept the voucher.
+    valid_days_after_due = Column(Integer, nullable=False, default=5)
+
+    # Challan numbers are what the bank reconciles against; KuickPay issues its
+    # own voucher id. Both are patterns so the school's existing numbering can
+    # be reproduced rather than replaced.
+    challan_pattern = Column(String(60), nullable=True, default="{seq:09d}")
+    kuickpay_prefix = Column(String(20), nullable=True)
+
+    updated_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    def to_dict(self):
+        return {
+            "school_name": self.school_name, "email": self.email, "website": self.website,
+            "bank_name": self.bank_name, "bank_account": self.bank_account,
+            "campus_code": self.campus_code, "post_to": self.post_to,
+            "bank_line": self.bank_line, "note": self.note,
+            "late_fine_per_day": str(self.late_fine_per_day),
+            "valid_days_after_due": self.valid_days_after_due,
+            "challan_pattern": self.challan_pattern,
+            "kuickpay_prefix": self.kuickpay_prefix,
         }

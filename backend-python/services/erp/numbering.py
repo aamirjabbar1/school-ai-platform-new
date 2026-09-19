@@ -34,6 +34,8 @@ SCOPE_VOUCHER = "voucher_no"
 SCOPE_RECEIPT = "receipt_no"
 SCOPE_JOURNAL = "journal_no"
 SCOPE_EXPENSE = "expense_no"
+# The number the bank reconciles against, printed and barcoded on the voucher.
+SCOPE_CHALLAN = "challan_no"
 
 DEFAULT_SERIES = [
     (SCOPE_GR, "GR Number", "{seq:05d}", 1),
@@ -45,6 +47,7 @@ DEFAULT_SERIES = [
     (SCOPE_RECEIPT, "Receipt Number", "R{seq:07d}", 1),
     (SCOPE_JOURNAL, "Journal Number", "J{seq:07d}", 1),
     (SCOPE_EXPENSE, "Expense Number", "E{seq:06d}", 1),
+    (SCOPE_CHALLAN, "Bank Challan Number", "{seq:09d}", 226080002),
 ]
 
 

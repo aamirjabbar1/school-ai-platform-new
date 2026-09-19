@@ -635,3 +635,92 @@ async def search_student(
             for student, profile, account in result.all()
         ]
     }
+
+
+# ─── Printing ─────────────────────────────────────────────────────────────────
+
+class PrintRequest(BaseModel):
+    voucher_ids: list[str]
+
+
+@router.post("/vouchers/print")
+async def print_vouchers(
+    body: PrintRequest,
+    _: User = Depends(erp_available),
+    user: User = Depends(require_permission("fee.voucher")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The printable PDF: one page per voucher, three copies across it."""
+    from fastapi.responses import Response
+    from services.erp import voucher_print
+
+    if not body.voucher_ids:
+        raise HTTPException(status_code=400, detail="Choose at least one voucher to print.")
+    if len(body.voucher_ids) > 400:
+        raise HTTPException(
+            status_code=400,
+            detail="That is more than 400 vouchers. Print one class at a time.",
+        )
+
+    try:
+        pdf = await voucher_print.render_vouchers(db, voucher_ids=body.voucher_ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="fee-vouchers.pdf"'},
+    )
+
+
+@router.get("/voucher-settings")
+async def get_voucher_settings(
+    _: User = Depends(erp_available),
+    user: User = Depends(require_permission("fee.report")),
+    db: AsyncSession = Depends(get_db),
+):
+    from services.erp import voucher_print
+    config = await voucher_print.settings(db)
+    await db.commit()
+    return config.to_dict()
+
+
+class VoucherSettingsRequest(BaseModel):
+    school_name: str | None = None
+    email: str | None = None
+    website: str | None = None
+    bank_name: str | None = None
+    bank_account: str | None = None
+    campus_code: str | None = None
+    post_to: str | None = None
+    bank_line: str | None = None
+    note: str | None = None
+    late_fine_per_day: Decimal | None = None
+    valid_days_after_due: int | None = None
+    kuickpay_prefix: str | None = None
+
+
+@router.put("/voucher-settings")
+async def update_voucher_settings(
+    body: VoucherSettingsRequest,
+    _: User = Depends(erp_available),
+    user: User = Depends(require_permission("fee.structure")),
+    db: AsyncSession = Depends(get_db),
+):
+    """The bank, the account, the note — school policy, changed without a deploy."""
+    from services.erp import voucher_print
+
+    config = await voucher_print.settings(db)
+    before = config.to_dict()
+    for field, value in body.model_dump(exclude_unset=True).items():
+        if value is not None:
+            setattr(config, field, value)
+    config.updated_by = user.id
+
+    old, new = audit.diff(before, config.to_dict())
+    if new:
+        audit.record(db, actor=user, entity_type="voucher_settings", action="updated",
+                     old_value=old, new_value=new)
+    await db.commit()
+    return config.to_dict()

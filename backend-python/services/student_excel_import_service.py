@@ -73,14 +73,21 @@ def normalize_class(raw) -> str | None:
     low = re.sub(r"[\-_]", " ", s.lower())
     low = re.sub(r"\s+", " ", low).strip()
 
-    # Pre-primary levels
-    if "pre" in low and "nursery" in low:
+    # Pre-primary levels.
+    #
+    # Matched on whole words rather than on the exact string, because LSS names
+    # its sections "Nursery-Go Yellow" and "Prep-Go Green" — the same pattern as
+    # "Two-Go Green", which already worked only because a number could be found
+    # in it. An exact-match test silently returned None for every pre-primary
+    # child, which is Amna's entire school.
+    def _has(*words: str) -> bool:
+        return any(re.search(r"\b" + w + r"\b", low) for w in words)
+
+    if "pre" in low and _has("nursery"):
         return "Pre-Nursery"
-    if low in ("nursery", "nur"):
+    if _has("nursery", "nur"):
         return "Nursery"
-    if low in ("kg", "k g", "kindergarten", "prep", "prep class", "preparatory"):
-        return "KG"
-    if low.startswith("kg") or "kindergarten" in low:
+    if _has("kg", "k g", "kindergarten", "prep", "preparatory"):
         return "KG"
     # Pre-9th convention → studies the Class 8 record (matches student importer)
     if "pre nine" in low or "pre 9" in low or "pre ix" in low:
