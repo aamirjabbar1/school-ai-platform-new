@@ -394,6 +394,27 @@ export const erpAPI = {
   journals: (params) => api.get('/erp/accounts/journals', { params }),
   accountingPeriods: () => api.get('/erp/accounts/periods'),
   setAccountingPeriod: (data) => api.post('/erp/accounts/periods', data),
+
+  // Examinations (phase 7)
+  exams: () => api.get('/erp/exams'),
+  createExam: (data) => api.post('/erp/exams', data),
+  examSubjects: (examId, params) => api.get(`/erp/exams/${examId}/subjects`, { params }),
+  addExamSubject: (examId, data) => api.post(`/erp/exams/${examId}/subjects`, data),
+  autoAddExamSubjects: (examId, classId, params) =>
+    api.post(`/erp/exams/${examId}/auto-subjects/${classId}`, {}, { params }),
+  marksSheet: (examSubjectId, params) => api.get(`/erp/exams/marks-sheet/${examSubjectId}`, { params }),
+  saveMarks: (data) => api.post('/erp/exams/marks', data),
+  approveMarks: (examSubjectId) => api.post(`/erp/exams/marks/${examSubjectId}/approve`),
+  examEntryStatus: (examId) => api.get(`/erp/exams/${examId}/entry-status`),
+  publishExam: (examId) => api.post(`/erp/exams/${examId}/publish`),
+  resultSchemes: () => api.get('/erp/exams/schemes'),
+  createResultScheme: (data) => api.post('/erp/exams/schemes', data),
+  updateResultScheme: (id, data) => api.put(`/erp/exams/schemes/${id}`, data),
+  examLedger: (examId, params) => api.get(`/erp/exams/ledger/${examId}`, { params }),
+  combinedLedger: (schemeId, params) => api.get(`/erp/exams/combined-ledger/${schemeId}`, { params }),
+  reportCard: (studentId, params) => api.get(`/erp/exams/report-card/${studentId}`, { params }),
+  saveReportRemark: (data) => api.post('/erp/exams/remarks', data),
+  gradeScale: () => api.get('/erp/exams/grade-scale'),
 };
 
 export default api;

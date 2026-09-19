@@ -22,6 +22,7 @@ from models import erp_attendance  # noqa: F401  (ERP attendance)
 from models import erp_fees  # noqa: F401  (ERP fees)
 from models import erp_hr  # noqa: F401  (ERP salary and payroll)
 from models import erp_accounts  # noqa: F401  (ERP accounting)
+from models import erp_exams  # noqa: F401  (ERP examinations)
 
 # ─── Alembic config ───────────────────────────────────────────────────────────
 config = context.config
