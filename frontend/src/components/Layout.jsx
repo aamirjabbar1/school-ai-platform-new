@@ -53,6 +53,7 @@ const navConfig = {
 // accountant never sees a link that would only 403 at them.
 const erpNav = [
   { path: '/erp',            icon: Wallet,        label: 'School ERP',   needs: null },
+  { path: '/erp/management', icon: LayoutDashboard, label: 'Management',  needs: ['dashboard.management'] },
   { path: '/erp/attendance', icon: ClipboardCheck, label: 'Attendance',  needs: ['attendance.mark', 'attendance.view'] },
   { path: '/erp/admissions', icon: UserPlus,      label: 'Admissions',   needs: ['admission.view'] },
   { path: '/erp/students',   icon: Users,         label: 'Students',     needs: ['student.view'] },

@@ -415,6 +415,12 @@ export const erpAPI = {
   reportCard: (studentId, params) => api.get(`/erp/exams/report-card/${studentId}`, { params }),
   saveReportRemark: (data) => api.post('/erp/exams/remarks', data),
   gradeScale: () => api.get('/erp/exams/grade-scale'),
+
+  // Management (phase 8)
+  managementDashboard: () => api.get('/erp/management/dashboard'),
+  managementExceptions: () => api.get('/erp/management/exceptions'),
+  assistantAsk: (data) => api.post('/erp/management/ask', data, { timeout: 120000 }),
+  assistantSuggestions: () => api.get('/erp/management/suggestions'),
 };
 
 export default api;
