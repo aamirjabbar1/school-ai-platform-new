@@ -62,6 +62,7 @@ const erpNav = [
   { path: '/erp/fees',       icon: Banknote,      label: 'Fee collection', needs: ['fee.collect'] },
   { path: '/erp/defaulters', icon: AlertCircle,   label: 'Defaulters',   needs: ['fee.report'] },
   { path: '/erp/fees/setup', icon: Coins,         label: 'Fee setup',    needs: ['fee.structure'] },
+  { path: '/erp/payroll',    icon: Wallet,        label: 'Payroll',      needs: ['payroll.run', 'payroll.structure', 'payroll.report'] },
 ];
 const erpOwnerNav = [
   { path: '/erp/access',   icon: ShieldCheck, label: 'People & access' },

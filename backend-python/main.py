@@ -59,6 +59,7 @@ from routes.erp import router as erp_router
 from routes.erp_admissions import router as erp_admissions_router
 from routes.erp_attendance import router as erp_attendance_router
 from routes.erp_fees import router as erp_fees_router
+from routes.erp_payroll import router as erp_payroll_router
 
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
@@ -218,6 +219,7 @@ app.include_router(erp_router,        prefix="/api")
 app.include_router(erp_admissions_router, prefix="/api")
 app.include_router(erp_attendance_router, prefix="/api")
 app.include_router(erp_fees_router,   prefix="/api")
+app.include_router(erp_payroll_router, prefix="/api")
 
 
 @app.get("/")

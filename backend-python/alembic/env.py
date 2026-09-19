@@ -20,6 +20,7 @@ from models import online_classes  # noqa: F401  (Online Classes module tables)
 from models import erp  # noqa: F401  (ERP foundations)
 from models import erp_attendance  # noqa: F401  (ERP attendance)
 from models import erp_fees  # noqa: F401  (ERP fees)
+from models import erp_hr  # noqa: F401  (ERP salary and payroll)
 
 # ─── Alembic config ───────────────────────────────────────────────────────────
 config = context.config

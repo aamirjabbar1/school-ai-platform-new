@@ -363,6 +363,22 @@ export const erpAPI = {
   defaulters: (params) => api.get('/erp/fees/defaulters', { params }),
   feeSummary: (params) => api.get('/erp/fees/summary', { params }),
   feeSearchStudent: (params) => api.get('/erp/fees/search-student', { params }),
+
+  // Payroll (phase 5)
+  salaries: () => api.get('/erp/payroll/salaries'),
+  salaryHistory: (id) => api.get(`/erp/payroll/salaries/${id}`),
+  setSalary: (id, data) => api.put(`/erp/payroll/salaries/${id}`, data),
+  payrollRuns: () => api.get('/erp/payroll/runs'),
+  generatePayroll: (data) => api.post('/erp/payroll/runs/generate', data, { timeout: 300000 }),
+  payrollRun: (id) => api.get(`/erp/payroll/runs/${id}`),
+  approvePayroll: (id) => api.post(`/erp/payroll/runs/${id}/approve`),
+  markPayrollPaid: (id, data) => api.post(`/erp/payroll/runs/${id}/paid`, data),
+  payrollBankFile: (id) => api.get(`/erp/payroll/runs/${id}/bank-file`),
+  payslip: (runId, employeeId) => api.get(`/erp/payroll/payslip/${runId}/${employeeId}`),
+  advances: (params) => api.get('/erp/payroll/advances', { params }),
+  createAdvance: (data) => api.post('/erp/payroll/advances', data),
+  employeeDocuments: (id) => api.get(`/erp/payroll/documents/${id}`),
+  recordEmployeeDocument: (data) => api.post('/erp/payroll/documents', data),
 };
 
 export default api;

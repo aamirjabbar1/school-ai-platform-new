@@ -47,6 +47,7 @@ const ErpAttendance = lazy(() => import('./pages/erp/Attendance'));
 const ErpFees = lazy(() => import('./pages/erp/Fees'));
 const ErpFeeSetup = lazy(() => import('./pages/erp/FeeSetup'));
 const ErpDefaulters = lazy(() => import('./pages/erp/Defaulters'));
+const ErpPayroll = lazy(() => import('./pages/erp/Payroll'));
 
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
@@ -131,6 +132,7 @@ export default function App() {
               to any signed-in user so a new role never needs a frontend change. */}
           <Route path="/erp" element={<ProtectedRoute><ErpHome /></ProtectedRoute>} />
           <Route path="/erp/students" element={<ProtectedRoute><ErpStudents /></ProtectedRoute>} />
+          <Route path="/erp/payroll" element={<ProtectedRoute><ErpPayroll /></ProtectedRoute>} />
           <Route path="/erp/fees" element={<ProtectedRoute><ErpFees /></ProtectedRoute>} />
           <Route path="/erp/fees/setup" element={<ProtectedRoute><ErpFeeSetup /></ProtectedRoute>} />
           <Route path="/erp/defaulters" element={<ProtectedRoute><ErpDefaulters /></ProtectedRoute>} />
