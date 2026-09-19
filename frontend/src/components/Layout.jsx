@@ -44,21 +44,30 @@ const navConfig = {
   ],
 };
 
-// The ERP's own navigation. It is appended to whatever the user's role
-// already shows rather than replacing it, so nobody loses a link they use
-// today — and it appears only for accounts the server grants ERP access.
+// The ERP's own navigation.
+//
+// Appended to whatever the user's role already shows rather than replacing it,
+// so nobody loses a link they use today — and filtered by what the server says
+// this person may actually do. A teacher sees Attendance and nothing else; the
+// accountant never sees a link that would only 403 at them.
 const erpNav = [
-  { path: '/erp',          icon: Wallet,      label: 'School ERP' },
-  { path: '/erp/admissions', icon: UserPlus,  label: 'Admissions' },
-  { path: '/erp/students', icon: Users,       label: 'Students' },
-  { path: '/erp/families', icon: Home,        label: 'Families' },
-  { path: '/erp/staff',    icon: GraduationCap, label: 'Staff' },
-  { path: '/erp/classes',  icon: Building2,   label: 'Classes' },
+  { path: '/erp',            icon: Wallet,        label: 'School ERP',   needs: null },
+  { path: '/erp/attendance', icon: ClipboardCheck, label: 'Attendance',  needs: ['attendance.mark', 'attendance.view'] },
+  { path: '/erp/admissions', icon: UserPlus,      label: 'Admissions',   needs: ['admission.view'] },
+  { path: '/erp/students',   icon: Users,         label: 'Students',     needs: ['student.view'] },
+  { path: '/erp/families',   icon: Home,          label: 'Families',     needs: ['family.view'] },
+  { path: '/erp/staff',      icon: GraduationCap, label: 'Staff',        needs: ['employee.view'] },
+  { path: '/erp/classes',    icon: Building2,     label: 'Classes',      needs: ['student.view', 'class.manage'] },
 ];
 const erpOwnerNav = [
   { path: '/erp/access',   icon: ShieldCheck, label: 'People & access' },
   { path: '/erp/settings', icon: Settings,    label: 'ERP settings' },
 ];
+
+const allowedErpNav = (erp) => {
+  const held = new Set(erp?.permissions || []);
+  return erpNav.filter((item) => !item.needs || item.needs.some((p) => held.has(p)));
+};
 
 // One status call per session, shared by every mount of the layout — asking on
 // every page change would add a request to every navigation for no new answer.
@@ -93,7 +102,7 @@ export default function Layout({ children, title }) {
 
   const navItems = [
     ...(navConfig[user?.role] || []),
-    ...(erp?.available ? erpNav : []),
+    ...(erp?.available ? allowedErpNav(erp) : []),
     ...(erp?.available && erp?.is_owner ? erpOwnerNav : []),
   ];
   const accent = roleAccent[user?.role] || roleAccent.student;

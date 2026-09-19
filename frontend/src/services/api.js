@@ -333,6 +333,14 @@ export const erpAPI = {
   family: (id) => api.get(`/erp/families/${id}`),
   createFamily: (data) => api.post('/erp/families', data),
   linkChild: (familyId, studentId) => api.post(`/erp/families/${familyId}/add-child/${studentId}`),
+
+  // Attendance (phase 3)
+  attendanceClasses: () => api.get('/erp/attendance/my-classes'),
+  attendanceRoster: (params) => api.get('/erp/attendance/roster', { params }),
+  saveAttendance: (data) => api.post('/erp/attendance/save', data),
+  attendanceMissing: (params) => api.get('/erp/attendance/missing', { params }),
+  attendanceClassReport: (params) => api.get('/erp/attendance/report/class', { params }),
+  attendanceStudentReport: (id, params) => api.get(`/erp/attendance/report/student/${id}`, { params }),
 };
 
 export default api;

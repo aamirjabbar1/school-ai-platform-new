@@ -57,6 +57,7 @@ from routes.live_classes_admin import router as live_classes_admin_router
 from routes.livekit_webhooks import router as livekit_webhook_router
 from routes.erp import router as erp_router
 from routes.erp_admissions import router as erp_admissions_router
+from routes.erp_attendance import router as erp_attendance_router
 
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
@@ -214,6 +215,7 @@ app.include_router(live_classes_admin_router, prefix="/api")
 app.include_router(livekit_webhook_router, prefix="/api")
 app.include_router(erp_router,        prefix="/api")
 app.include_router(erp_admissions_router, prefix="/api")
+app.include_router(erp_attendance_router, prefix="/api")
 
 
 @app.get("/")
