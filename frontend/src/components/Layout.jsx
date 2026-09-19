@@ -10,6 +10,7 @@ import {
   Database, LogOut, Menu, X, ClipboardList, Sparkles, GraduationCap, FileSpreadsheet,
   CalendarRange, ClipboardCheck, Video, Radio, PlaySquare,
   Building2, ShieldCheck, Settings, Wallet, UserPlus, Home,
+  Banknote, Coins, AlertCircle,
 } from 'lucide-react';
 
 const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
@@ -58,6 +59,9 @@ const erpNav = [
   { path: '/erp/families',   icon: Home,          label: 'Families',     needs: ['family.view'] },
   { path: '/erp/staff',      icon: GraduationCap, label: 'Staff',        needs: ['employee.view'] },
   { path: '/erp/classes',    icon: Building2,     label: 'Classes',      needs: ['student.view', 'class.manage'] },
+  { path: '/erp/fees',       icon: Banknote,      label: 'Fee collection', needs: ['fee.collect'] },
+  { path: '/erp/defaulters', icon: AlertCircle,   label: 'Defaulters',   needs: ['fee.report'] },
+  { path: '/erp/fees/setup', icon: Coins,         label: 'Fee setup',    needs: ['fee.structure'] },
 ];
 const erpOwnerNav = [
   { path: '/erp/access',   icon: ShieldCheck, label: 'People & access' },

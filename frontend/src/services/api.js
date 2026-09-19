@@ -341,6 +341,28 @@ export const erpAPI = {
   attendanceMissing: (params) => api.get('/erp/attendance/missing', { params }),
   attendanceClassReport: (params) => api.get('/erp/attendance/report/class', { params }),
   attendanceStudentReport: (id, params) => api.get(`/erp/attendance/report/student/${id}`, { params }),
+
+  // Fees (phase 4)
+  feeHeads: () => api.get('/erp/fees/heads'),
+  createFeeHead: (data) => api.post('/erp/fees/heads', data),
+  updateFeeHead: (id, data) => api.put(`/erp/fees/heads/${id}`, data),
+  feeStructure: () => api.get('/erp/fees/structure'),
+  saveFeeStructure: (data) => api.put('/erp/fees/structure', data),
+  applyFeeIncrease: (data) => api.post('/erp/fees/structure/increase', data),
+  concessions: (params) => api.get('/erp/fees/concessions', { params }),
+  createConcession: (data) => api.post('/erp/fees/concessions', data),
+  endConcession: (id) => api.delete(`/erp/fees/concessions/${id}`),
+  generateVouchers: (data) => api.post('/erp/fees/vouchers/generate', data, { timeout: 300000 }),
+  vouchers: (params) => api.get('/erp/fees/vouchers', { params }),
+  voucher: (id) => api.get(`/erp/fees/vouchers/${id}`),
+  cancelVoucher: (id, reason) => api.post(`/erp/fees/vouchers/${id}/cancel`, { reason }),
+  receivePayment: (data) => api.post('/erp/fees/payments', data),
+  reversePayment: (id, reason) => api.post(`/erp/fees/payments/${id}/reverse`, { reason }),
+  payments: (params) => api.get('/erp/fees/payments', { params }),
+  feeLedger: (id) => api.get(`/erp/fees/ledger/${id}`),
+  defaulters: (params) => api.get('/erp/fees/defaulters', { params }),
+  feeSummary: (params) => api.get('/erp/fees/summary', { params }),
+  feeSearchStudent: (params) => api.get('/erp/fees/search-student', { params }),
 };
 
 export default api;

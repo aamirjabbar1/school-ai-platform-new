@@ -19,6 +19,7 @@ from models.models import Base  # noqa: F401  (imports all mapped classes)
 from models import online_classes  # noqa: F401  (Online Classes module tables)
 from models import erp  # noqa: F401  (ERP foundations)
 from models import erp_attendance  # noqa: F401  (ERP attendance)
+from models import erp_fees  # noqa: F401  (ERP fees)
 
 # ─── Alembic config ───────────────────────────────────────────────────────────
 config = context.config
