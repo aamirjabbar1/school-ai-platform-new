@@ -104,6 +104,10 @@ class SchoolClass(Base):
     # and fee bands later; set by the backfill from the canonical name.
     level = Column(String(20), nullable=True)
     sort_order = Column(Integer, nullable=False, default=0)
+    # Campus. LSS runs one campus today and the ERP shows no campus field
+    # anywhere — but a second campus is a schema change that is trivial now
+    # and brutal in three years, so the column exists, defaulted and hidden.
+    campus_id = Column(String(36), ForeignKey("campuses.id"), nullable=True, index=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
@@ -145,6 +149,10 @@ class Section(Base):
     class_id = Column(String(36), ForeignKey("school_classes.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(30), nullable=False)          # "A"
     capacity = Column(Integer, nullable=True)
+    # Campus. LSS runs one campus today and the ERP shows no campus field
+    # anywhere — but a second campus is a schema change that is trivial now
+    # and brutal in three years, so the column exists, defaulted and hidden.
+    campus_id = Column(String(36), ForeignKey("campuses.id"), nullable=True, index=True)
     class_teacher_id = Column(String(36), ForeignKey("users.id"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=utcnow)
@@ -250,6 +258,10 @@ class Family(Base):
 
     id = Column(String(36), primary_key=True, default=gen_uuid)
     family_code = Column(String(30), nullable=False, unique=True)
+    # Campus. LSS runs one campus today and the ERP shows no campus field
+    # anywhere — but a second campus is a schema change that is trivial now
+    # and brutal in three years, so the column exists, defaulted and hidden.
+    campus_id = Column(String(36), ForeignKey("campuses.id"), nullable=True, index=True)
     father_name = Column(String(150), nullable=True, index=True)
     mother_name = Column(String(150), nullable=True)
     guardian_name = Column(String(150), nullable=True)
@@ -287,6 +299,10 @@ class StudentProfile(Base):
     gr_no = Column(String(30), nullable=True, unique=True, index=True)
     admission_no = Column(String(30), nullable=True, unique=True, index=True)
     registration_no = Column(String(50), nullable=True, index=True)
+    # Campus. LSS runs one campus today and the ERP shows no campus field
+    # anywhere — but a second campus is a schema change that is trivial now
+    # and brutal in three years, so the column exists, defaulted and hidden.
+    campus_id = Column(String(36), ForeignKey("campuses.id"), nullable=True, index=True)
     family_id = Column(String(36), ForeignKey("families.id"), nullable=True, index=True)
 
     date_of_birth = Column(Date, nullable=True)
@@ -344,6 +360,10 @@ class EmployeeProfile(Base):
     user_id = Column(String(36), ForeignKey("users.id"), primary_key=True)
     employee_no = Column(String(30), nullable=True, unique=True, index=True)
     registration_no = Column(String(50), nullable=True, index=True)
+    # Campus. LSS runs one campus today and the ERP shows no campus field
+    # anywhere — but a second campus is a schema change that is trivial now
+    # and brutal in three years, so the column exists, defaulted and hidden.
+    campus_id = Column(String(36), ForeignKey("campuses.id"), nullable=True, index=True)
 
     cnic = Column(String(20), nullable=True, index=True)
     father_or_husband_name = Column(String(150), nullable=True)
@@ -476,6 +496,9 @@ class UserRole(Base):
     id = Column(String(36), primary_key=True, default=gen_uuid)
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     role_id = Column(String(36), ForeignKey("roles.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Optional limit on the grant: {"levels": ["pre_primary"]} for the Preschool
+    # Head. Null means the whole school, which is what almost every grant is.
+    scope = Column(JSON, nullable=True)
     granted_by = Column(String(36), ForeignKey("users.id"), nullable=True)
     granted_at = Column(DateTime, default=utcnow)
 
@@ -571,3 +594,170 @@ class FeatureFlag(Base):
     def to_dict(self):
         return {"key": self.key, "enabled": bool(self.enabled),
                 "roles": self.roles or [], "note": self.note}
+
+
+# ─── Campus ───────────────────────────────────────────────────────────────────
+
+class Campus(Base):
+    """Where the school is.
+
+    LSS Islamabad is the only campus, and the ERP deliberately shows no campus
+    field on any screen — asking a clerk which campus a child is joining when
+    there is only one is exactly the sort of question this system exists to stop
+    asking. The table is here so that adding a second campus later is a row and
+    a filter, rather than a migration across every table that holds a person, a
+    fee or a mark.
+    """
+    __tablename__ = "campuses"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    name = Column(String(120), nullable=False, unique=True)
+    code = Column(String(20), nullable=True, unique=True)
+    city = Column(String(80), nullable=True)
+    address = Column(Text, nullable=True)
+    phone = Column(String(30), nullable=True)
+    # Exactly one campus is the default; new records take it without asking.
+    is_default = Column(Boolean, nullable=False, default=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=utcnow)
+
+    def to_dict(self):
+        return {"id": self.id, "name": self.name, "code": self.code,
+                "city": self.city, "is_default": bool(self.is_default)}
+
+
+# ─── Guardians ────────────────────────────────────────────────────────────────
+
+class Guardian(Base):
+    """A parent or guardian, attached to a family rather than to a child.
+
+    Two siblings share one father. Storing him twice is how the school ends up
+    with two phone numbers for the same man, and how a fee reminder reaches the
+    wrong one.
+    """
+    __tablename__ = "guardians"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    family_id = Column(String(36), ForeignKey("families.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(String(150), nullable=False)
+    relation = Column(String(40), nullable=True)          # father | mother | guardian
+    cnic = Column(String(20), nullable=True, index=True)
+    phone = Column(String(30), nullable=True, index=True)
+    email = Column(String(150), nullable=True)
+    occupation = Column(String(120), nullable=True)
+    # The one the school actually rings.
+    is_primary = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    def to_dict(self):
+        return {"id": self.id, "family_id": self.family_id, "name": self.name,
+                "relation": self.relation, "cnic": self.cnic, "phone": self.phone,
+                "email": self.email, "occupation": self.occupation,
+                "is_primary": bool(self.is_primary)}
+
+
+# ─── Admissions ───────────────────────────────────────────────────────────────
+
+ADMISSION_INQUIRY = "inquiry"
+ADMISSION_APPLIED = "applied"
+ADMISSION_APPROVED = "approved"
+ADMISSION_CONFIRMED = "confirmed"
+ADMISSION_REJECTED = "rejected"
+ADMISSION_CANCELLED = "cancelled"
+
+ADMISSION_OPEN_STATES = (ADMISSION_INQUIRY, ADMISSION_APPLIED, ADMISSION_APPROVED)
+
+
+class Admission(Base):
+    """One child's journey from enquiry to enrolled, as a single record.
+
+    The blueprint proposed three tables — inquiries, applications, admissions.
+    One table with a status carries the same information with none of the joins,
+    and an enquiry that never converts still leaves its trace, which was the
+    point of separating them. Three tables would also have meant three screens,
+    and this module is judged on whether an admission clerk can work it without
+    training.
+
+    Nothing here touches `users` until the moment of confirmation. An enquiry is
+    not an account, and a child who never joins never gets one.
+    """
+    __tablename__ = "admissions"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    campus_id = Column(String(36), ForeignKey("campuses.id"), nullable=True, index=True)
+    application_no = Column(String(30), nullable=True, unique=True, index=True)
+    status = Column(String(20), nullable=False, default=ADMISSION_INQUIRY, index=True)
+
+    # The child
+    student_name = Column(String(150), nullable=False)
+    father_name = Column(String(150), nullable=True, index=True)
+    mother_name = Column(String(150), nullable=True)
+    date_of_birth = Column(Date, nullable=True)
+    gender = Column(String(10), nullable=True)
+    b_form = Column(String(20), nullable=True)
+    phone = Column(String(30), nullable=True, index=True)
+    address = Column(Text, nullable=True)
+    previous_school = Column(String(200), nullable=True)
+    previous_class = Column(String(50), nullable=True)
+
+    # Where they are going
+    session_id = Column(String(36), ForeignKey("academic_sessions.id"), nullable=True, index=True)
+    class_applied_id = Column(String(36), ForeignKey("school_classes.id"), nullable=True, index=True)
+    section_id = Column(String(36), ForeignKey("sections.id"), nullable=True)
+
+    # Who they belong to
+    family_id = Column(String(36), ForeignKey("families.id"), nullable=True, index=True)
+    guardian_name = Column(String(150), nullable=True)
+    guardian_phone = Column(String(30), nullable=True)
+    emergency_contact = Column(String(100), nullable=True)
+    emergency_phone = Column(String(30), nullable=True)
+
+    remarks = Column(Text, nullable=True)
+    inquiry_source = Column(String(60), nullable=True)    # walk-in, referral, …
+
+    # Set only when the admission is confirmed. Until then this record is a
+    # piece of paper, not a person.
+    student_user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    gr_no = Column(String(30), nullable=True)
+    admission_no = Column(String(30), nullable=True)
+    admission_date = Column(Date, nullable=True)
+    # Whether the login slip has been collected. Never the password itself.
+    credentials_issued = Column(Boolean, nullable=False, default=False)
+
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    confirmed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    confirmed_at = Column(DateTime, nullable=True)
+    rejected_reason = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "application_no": self.application_no,
+            "status": self.status,
+            "student_name": self.student_name,
+            "father_name": self.father_name,
+            "mother_name": self.mother_name,
+            "date_of_birth": self.date_of_birth.isoformat() if self.date_of_birth else None,
+            "gender": self.gender,
+            "b_form": self.b_form,
+            "phone": self.phone,
+            "address": self.address,
+            "previous_school": self.previous_school,
+            "previous_class": self.previous_class,
+            "session_id": self.session_id,
+            "class_applied_id": self.class_applied_id,
+            "section_id": self.section_id,
+            "family_id": self.family_id,
+            "guardian_name": self.guardian_name,
+            "guardian_phone": self.guardian_phone,
+            "remarks": self.remarks,
+            "student_user_id": self.student_user_id,
+            "gr_no": self.gr_no,
+            "admission_no": self.admission_no,
+            "admission_date": self.admission_date.isoformat() if self.admission_date else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "confirmed_at": self.confirmed_at.isoformat() if self.confirmed_at else None,
+        }

@@ -16,8 +16,8 @@ import Layout from '../../components/Layout';
 import { erpAPI } from '../../services/api';
 import { Attention, Busy, Confirm, Note, Panel, Stat } from '../../components/erp/Kit';
 import {
-  ArrowRight, Building2, CalendarRange, GraduationCap, Layers,
-  ShieldCheck, Sparkles, Users, Wand2,
+  ArrowRight, Building2, CalendarRange, GraduationCap, Home, Layers,
+  ShieldCheck, Sparkles, UserPlus, Users, Wand2,
 } from 'lucide-react';
 
 export default function ErpHome() {
@@ -219,8 +219,12 @@ export default function ErpHome() {
             )}
 
             <div className="grid sm:grid-cols-2 gap-3">
+              <Tile to="/erp/admissions" icon={UserPlus} title="Admissions"
+                    hint="Admit a new student — one form, one press" />
               <Tile to="/erp/students" icon={Users} title="Students"
                     hint="Find any student by GR number, name or father’s name" />
+              <Tile to="/erp/families" icon={Home} title="Families"
+                    hint="One household, every child the school teaches from it" />
               <Tile to="/erp/staff" icon={GraduationCap} title="Staff"
                     hint="Employee records, designations and joining dates" />
               <Tile to="/erp/classes" icon={Building2} title="Classes & sections"

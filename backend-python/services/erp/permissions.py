@@ -138,6 +138,18 @@ ROLE_DEFINITIONS: list[dict] = [
         ],
     },
     {
+        "key": "preschool_head", "name": "Preschool Head", "rank": 25, "is_system": True,
+        "description": "Runs the preschool: its children, staff, attendance and results.",
+        "permissions": [
+            "setup.view", "class.manage",
+            "student.view", "student.edit", "family.view",
+            "admission.view", "admission.create", "admission.confirm",
+            "attendance.view", "attendance.correct",
+            "exam.configure", "exam.marks.review", "exam.ledger",
+            "employee.view", "report.view",
+        ],
+    },
+    {
         "key": "coordinator", "name": "Coordinator", "rank": 30, "is_system": True,
         "description": "Academic supervision for assigned classes.",
         "permissions": [
@@ -273,3 +285,52 @@ def require_permission(*needed: str):
         return user
 
     return checker
+
+
+# ─── Scope ────────────────────────────────────────────────────────────────────
+# A role can be held over the whole school or over part of it. The Preschool
+# Head runs Pre-Nursery, Nursery and KG; she is not a Principal who happens to
+# work mornings, and a system that cannot express that ends up either showing
+# her 755 children or inventing a second Principal.
+#
+# Scope lives on the *grant*, not the role, because the same role can be held
+# differently by two people. An empty scope means the whole school.
+
+LEVELS = ("pre_primary", "primary", "middle", "secondary")
+
+# What a role is scoped to by default when it is granted, unless the Owner says
+# otherwise. Everything else defaults to the whole school.
+DEFAULT_ROLE_SCOPE: dict[str, list[str]] = {
+    "preschool_head": ["pre_primary"],
+}
+
+
+async def scope_for(db: AsyncSession, user: User) -> list[str] | None:
+    """The school levels this user may see, or None for all of them.
+
+    None and "every level" are deliberately different answers: None means
+    unscoped, which is what almost everyone is, and skipping the filter
+    entirely is cheaper than an IN over four constants on every query.
+    """
+    result = await db.execute(
+        select(UserRole.scope, Role.key)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(UserRole.user_id == user.id)
+    )
+    rows = result.all()
+    if not rows:
+        return None
+
+    levels: set[str] = set()
+    for scope, role_key in rows:
+        wanted = (scope or {}).get("levels") if isinstance(scope, dict) else None
+        if not wanted:
+            # A role granted without a scope is held over the whole school, so
+            # holding any such role removes the limit entirely.
+            return None
+        levels.update(wanted)
+
+    # A legacy admin is unscoped whatever else they hold.
+    if user.role == "admin":
+        return None
+    return sorted(levels) or None

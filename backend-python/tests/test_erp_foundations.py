@@ -27,7 +27,9 @@ from services.erp.permissions import (
 from services.erp.setup import _default_session_name, _level_for, _sort_order_for
 
 BACKEND = Path(__file__).resolve().parent.parent
-MIGRATION = BACKEND / "alembic/versions/20260919_1431_d58c75ac40b7_add_erp_foundations.py"
+ERP_MIGRATIONS = sorted(
+    (BACKEND / "alembic/versions").glob("*_add_erp_*.py")
+)
 
 # Everything that existed before the ERP. The migration may reference these by
 # foreign key; it may not alter, drop or re-index them.
@@ -45,15 +47,12 @@ PRE_EXISTING_TABLES = {
 DESTRUCTIVE_OPS = {"drop_table", "drop_column", "alter_column", "drop_index", "drop_constraint", "rename_table"}
 
 
-def _migration_tree():
-    return ast.parse(MIGRATION.read_text(encoding="utf-8"))
-
-
-def _function(name):
-    for node in _migration_tree().body:
+def _function(migration, name):
+    tree = ast.parse(migration.read_text(encoding="utf-8"))
+    for node in tree.body:
         if isinstance(node, ast.FunctionDef) and node.name == name:
             return node
-    raise AssertionError(f"{name}() not found in the ERP migration")
+    raise AssertionError(f"{name}() not found in {migration.name}")
 
 
 def _op_calls(func_node):
@@ -71,15 +70,18 @@ def _op_calls(func_node):
     return calls
 
 
+@pytest.mark.parametrize("migration", ERP_MIGRATIONS, ids=lambda m: m.stem[-28:])
 class TestMigrationIsAdditive:
-    """The live platform must not be able to notice this migration."""
+    """The live platform must not be able to notice any ERP migration.
 
-    def test_migration_exists(self):
-        assert MIGRATION.exists(), "the ERP migration is missing"
+    Parametrised over every ERP migration rather than pinned to the first one,
+    because phase 6 is exactly where a careless autogenerate would slip a
+    `drop_index` on `lesson_plans` into a diff nobody reads closely.
+    """
 
-    def test_upgrade_never_touches_an_existing_table(self):
+    def test_upgrade_never_touches_an_existing_table(self, migration):
         offences = []
-        for op_name, first_arg, node in _op_calls(_function("upgrade")):
+        for op_name, first_arg, node in _op_calls(_function(migration, "upgrade")):
             if op_name not in DESTRUCTIVE_OPS:
                 continue
             # drop_index names an index, not a table — check its table= kwarg.
@@ -94,23 +96,40 @@ class TestMigrationIsAdditive:
             + ", ".join(offences)
         )
 
-    def test_upgrade_only_creates(self):
-        created = {arg for name, arg, _ in _op_calls(_function("upgrade")) if name == "create_table"}
+    def test_upgrade_only_creates(self, migration):
+        created = {arg for name, arg, _ in _op_calls(_function(migration, "upgrade")) if name == "create_table"}
         assert created, "the migration creates no tables — something is wrong"
         assert not (created & PRE_EXISTING_TABLES), "the migration re-creates an existing table"
 
-    def test_downgrade_removes_only_what_it_created(self):
-        created = {arg for name, arg, _ in _op_calls(_function("upgrade")) if name == "create_table"}
-        dropped = {arg for name, arg, _ in _op_calls(_function("downgrade")) if name == "drop_table"}
+    def test_every_foreign_key_is_named(self, migration):
+        """An unnamed constraint cannot be dropped again, so the downgrade
+        raises before it touches anything — a migration that is reversible only
+        on paper."""
+        for op_name, first_arg, node in _op_calls(_function(migration, "upgrade")):
+            if op_name == "create_foreign_key":
+                assert first_arg, f"{migration.name} creates an unnamed foreign key"
+        for op_name, first_arg, node in _op_calls(_function(migration, "downgrade")):
+            if op_name == "drop_constraint":
+                assert first_arg, f"{migration.name} drops an unnamed constraint"
+
+    def test_downgrade_removes_only_what_it_created(self, migration):
+        created = {arg for name, arg, _ in _op_calls(_function(migration, "upgrade")) if name == "create_table"}
+        dropped = {arg for name, arg, _ in _op_calls(_function(migration, "downgrade")) if name == "drop_table"}
         assert dropped == created, (
             "downgrade must drop exactly the tables upgrade created — "
             f"missing: {created - dropped}, unexpected: {dropped - created}"
         )
 
+
+class TestModuleShipsOff:
+
     def test_ships_switched_off(self):
         """A module that arrives switched on is a module nobody consented to."""
         from models.erp import FeatureFlag
         assert FeatureFlag.__table__.c.enabled.default.arg is False
+
+    def test_migrations_exist(self):
+        assert len(ERP_MIGRATIONS) >= 2, "expected the phase 1 and phase 2 migrations"
 
 
 class TestPermissionCatalogue:
@@ -253,3 +272,121 @@ class TestSessionNaming:
     def test_pakistani_school_year_runs_april_to_march(self, today, expected):
         from datetime import date
         assert _default_session_name(date(*today)) == expected
+
+
+class TestPreschoolHead:
+    """Amna's role (specification §82, the fourth senior account)."""
+
+    def test_the_role_exists(self):
+        assert "preschool_head" in ROLE_BY_KEY
+
+    def test_she_runs_the_preschool_not_the_school(self):
+        held = set(ROLE_BY_KEY["preschool_head"]["permissions"])
+        for key in ("student.view", "student.edit", "admission.confirm",
+                    "attendance.correct", "exam.marks.review"):
+            assert key in held
+        # Not hers: the money, the staff files, or the system itself.
+        for key in ("fee.collect", "fee.structure", "payroll.run", "payroll.approve",
+                    "accounts.post", "employee.sensitive", "employee.edit"):
+            assert key not in held, f"the Preschool Head should not hold {key}"
+
+    def test_she_holds_no_owner_powers(self):
+        assert not set(ROLE_BY_KEY["preschool_head"]["permissions"]) & OWNER_ONLY
+
+    def test_her_grant_is_scoped_to_the_preschool_by_default(self):
+        from services.erp.permissions import DEFAULT_ROLE_SCOPE, LEVELS
+        assert DEFAULT_ROLE_SCOPE["preschool_head"] == ["pre_primary"]
+        assert "pre_primary" in LEVELS
+
+    def test_nobody_else_is_scoped_by_accident(self):
+        from services.erp.permissions import DEFAULT_ROLE_SCOPE
+        assert set(DEFAULT_ROLE_SCOPE) == {"preschool_head"}
+
+    def test_she_outranks_a_coordinator_and_not_the_principal(self):
+        assert ROLE_BY_KEY["principal"]["rank"] < ROLE_BY_KEY["preschool_head"]["rank"]
+        assert ROLE_BY_KEY["preschool_head"]["rank"] < ROLE_BY_KEY["coordinator"]["rank"]
+
+
+class TestCampusReadiness:
+    """One campus today; a second one should be a row, not a migration."""
+
+    def test_campus_is_optional_everywhere(self):
+        from models.erp import (
+            Admission, EmployeeProfile, Family, SchoolClass, Section, StudentProfile,
+        )
+        for model in (SchoolClass, Section, Family, StudentProfile, EmployeeProfile, Admission):
+            column = model.__table__.c.campus_id
+            assert column.nullable, f"{model.__name__}.campus_id must stay optional"
+
+    def test_no_campus_is_required_to_admit_a_student(self):
+        """If a clerk had to choose a campus, the readiness would have cost
+        something. It must not."""
+        from routes.erp_admissions import AdmissionRequest
+        assert "campus_id" not in AdmissionRequest.model_fields
+
+
+class TestFamilyMatching:
+
+    @pytest.mark.parametrize("written,expected", [
+        ("0300-1234567", "3001234567"),
+        ("+92 300 1234567", "3001234567"),
+        ("03001234567", "3001234567"),
+        ("0300 123 4567", "3001234567"),
+    ])
+    def test_a_phone_number_is_the_same_number_however_it_is_written(self, written, expected):
+        from services.erp.admissions import _normalise_phone
+        assert _normalise_phone(written) == expected
+
+    def test_two_spellings_of_one_number_match_each_other(self):
+        from services.erp.admissions import _normalise_phone
+        assert _normalise_phone("+92 300 1234567") == _normalise_phone("03001234567")
+
+    def test_a_missing_number_matches_nothing(self):
+        from services.erp.admissions import _normalise_phone
+        assert _normalise_phone(None) == ""
+        assert _normalise_phone("") == ""
+
+    def test_names_compare_without_spacing_or_case(self):
+        from services.erp.admissions import _normalise_name
+        assert _normalise_name("  Muhammad   ASLAM ") == "muhammad aslam"
+
+
+class TestTemporaryPasswords:
+
+    def test_it_has_no_characters_a_parent_would_misread(self):
+        from services.erp.admissions import generate_password
+        for _ in range(200):
+            password = generate_password()
+            assert not set(password) & set("l1O0"), f"{password} contains an ambiguous character"
+
+    def test_it_is_long_enough_to_be_worth_having(self):
+        from services.erp.admissions import generate_password
+        assert len(generate_password()) >= 8
+
+    def test_two_students_do_not_get_the_same_one(self):
+        from services.erp.admissions import generate_password
+        assert len({generate_password() for _ in range(500)}) > 490
+
+
+class TestAdmissionLifecycle:
+
+    def test_an_enquiry_is_not_an_account(self):
+        """Nothing about an admission record implies a user until it is
+        confirmed — a child who never joins never gets a login."""
+        from models.erp import Admission
+        assert Admission.__table__.c.student_user_id.nullable
+
+    def test_open_states_exclude_the_finished_ones(self):
+        from models.erp import (
+            ADMISSION_CANCELLED, ADMISSION_CONFIRMED, ADMISSION_OPEN_STATES,
+            ADMISSION_REJECTED,
+        )
+        for done in (ADMISSION_CONFIRMED, ADMISSION_REJECTED, ADMISSION_CANCELLED):
+            assert done not in ADMISSION_OPEN_STATES
+
+    def test_the_application_number_is_its_own_series(self):
+        """Most enquiries never become admissions. If they shared a series, the
+        admission register would be full of gaps somebody has to explain."""
+        scopes = {s[0] for s in numbering.DEFAULT_SERIES}
+        assert numbering.SCOPE_ADMISSION_APPLICATION in scopes
+        assert numbering.SCOPE_ADMISSION_APPLICATION != numbering.SCOPE_ADMISSION

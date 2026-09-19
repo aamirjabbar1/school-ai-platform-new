@@ -321,6 +321,18 @@ export const erpAPI = {
   updateFlag: (key, data) => api.put(`/erp/settings/flags/${key}`, data),
 
   audit: (params) => api.get('/erp/audit', { params }),
+
+  // Admissions & families (phase 2)
+  admissions: (params) => api.get('/erp/admissions', { params }),
+  createAdmission: (data) => api.post('/erp/admissions', data),
+  updateAdmission: (id, data) => api.put(`/erp/admissions/${id}`, data),
+  confirmAdmission: (id) => api.post(`/erp/admissions/${id}/confirm`, {}, { timeout: 60000 }),
+  rejectAdmission: (id, reason) => api.post(`/erp/admissions/${id}/reject`, { reason }),
+  suggestFamilies: (data) => api.post('/erp/families/suggest', data),
+  families: (params) => api.get('/erp/families', { params }),
+  family: (id) => api.get(`/erp/families/${id}`),
+  createFamily: (data) => api.post('/erp/families', data),
+  linkChild: (familyId, studentId) => api.post(`/erp/families/${familyId}/add-child/${studentId}`),
 };
 
 export default api;

@@ -34,7 +34,8 @@ from models.erp import (
 from models.models import User
 from services.erp import audit, numbering, setup as setup_service
 from services.erp.permissions import (
-    OWNER_ONLY, PERMISSIONS, permissions_for, require_permission, role_keys_for,
+    DEFAULT_ROLE_SCOPE, OWNER_ONLY, PERMISSIONS, permissions_for,
+    require_permission, role_keys_for, scope_for,
 )
 
 router = APIRouter(prefix="/erp", tags=["erp"])
@@ -279,6 +280,7 @@ async def make_current(
 @router.get("/classes")
 async def list_classes(
     _: User = Depends(erp_available),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Classes, their sections, and how many students are in each.
@@ -289,7 +291,11 @@ async def list_classes(
     """
     session = await setup_service.current_session(db)
 
-    result = await db.execute(select(SchoolClass).order_by(SchoolClass.sort_order))
+    stmt = select(SchoolClass).order_by(SchoolClass.sort_order)
+    levels = await scope_for(db, user)
+    if levels:
+        stmt = stmt.where(SchoolClass.level.in_(levels))
+    result = await db.execute(stmt)
     classes = list(result.scalars().all())
 
     result = await db.execute(select(Section))
@@ -367,6 +373,14 @@ async def list_students(
             StudentProfile.admission_no.ilike(pattern),
             StudentProfile.registration_no.ilike(pattern),
         ))
+    # A role held over part of the school sees part of the school. The
+    # Preschool Head opening Students gets her own children, not 755 of them.
+    levels = await scope_for(db, user)
+    if levels:
+        stmt = stmt.join(SchoolClass, SchoolClass.id == Enrollment.class_id).where(
+            SchoolClass.level.in_(levels)
+        )
+
     if class_id:
         stmt = stmt.where(Enrollment.class_id == class_id)
     if section_id:
@@ -730,9 +744,16 @@ async def grant_role(
     if result.scalar_one_or_none():
         return {"message": f"{target.name} already has the {role.name} role"}
 
-    db.add(UserRole(user_id=target.id, role_id=role.id, granted_by=user.id))
+    # Some roles are held over part of the school by definition — the
+    # Preschool Head runs the preschool. The scope travels with the grant so two
+    # people can hold the same role over different parts of the school later.
+    default_levels = DEFAULT_ROLE_SCOPE.get(role.key)
+    scope = {"levels": default_levels} if default_levels else None
+
+    db.add(UserRole(user_id=target.id, role_id=role.id, granted_by=user.id, scope=scope))
     audit.record(db, actor=user, entity_type=audit.USER_ROLE, action="granted",
-                 entity_id=target.id, new_value={"role": role.key, "to": target.name})
+                 entity_id=target.id,
+                 new_value={"role": role.key, "to": target.name, "scope": scope})
     await db.commit()
     return {"message": f"{target.name} is now {role.name}"}
 

@@ -24,6 +24,10 @@ from models.erp import NumberSeries
 # Scopes the ERP allocates from. Seeded by bootstrap; patterns are editable.
 SCOPE_GR = "gr_no"
 SCOPE_ADMISSION = "admission_no"
+# The number on the application form, allocated at enquiry. Separate from the
+# admission number because most enquiries never become admissions, and a gap in
+# the admission register is a question somebody has to answer.
+SCOPE_ADMISSION_APPLICATION = "application_no"
 SCOPE_EMPLOYEE = "employee_no"
 SCOPE_FAMILY = "family_code"
 SCOPE_VOUCHER = "voucher_no"
@@ -32,6 +36,7 @@ SCOPE_RECEIPT = "receipt_no"
 DEFAULT_SERIES = [
     (SCOPE_GR, "GR Number", "{seq:05d}", 1),
     (SCOPE_ADMISSION, "Admission Number", "{seq:05d}", 1),
+    (SCOPE_ADMISSION_APPLICATION, "Application Number", "APP-{seq:05d}", 1),
     (SCOPE_EMPLOYEE, "Employee Number", "LSS-EMP-{seq:04d}", 1),
     (SCOPE_FAMILY, "Family Code", "FAM-{seq:05d}", 1),
     (SCOPE_VOUCHER, "Fee Voucher Number", "V{seq:07d}", 1),

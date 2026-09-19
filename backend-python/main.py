@@ -56,6 +56,7 @@ from routes.class_schedules import router as class_schedules_router
 from routes.live_classes_admin import router as live_classes_admin_router
 from routes.livekit_webhooks import router as livekit_webhook_router
 from routes.erp import router as erp_router
+from routes.erp_admissions import router as erp_admissions_router
 
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
@@ -212,6 +213,7 @@ app.include_router(live_classes_admin_router, prefix="/api")
 # Called by the LiveKit media server, not by a user: authenticated by signature.
 app.include_router(livekit_webhook_router, prefix="/api")
 app.include_router(erp_router,        prefix="/api")
+app.include_router(erp_admissions_router, prefix="/api")
 
 
 @app.get("/")

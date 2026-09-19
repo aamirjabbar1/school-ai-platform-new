@@ -9,7 +9,7 @@ import {
   LayoutDashboard, MessageSquare, BookOpen, FileText, Users,
   Database, LogOut, Menu, X, ClipboardList, Sparkles, GraduationCap, FileSpreadsheet,
   CalendarRange, ClipboardCheck, Video, Radio, PlaySquare,
-  Building2, ShieldCheck, Settings, Wallet,
+  Building2, ShieldCheck, Settings, Wallet, UserPlus, Home,
 } from 'lucide-react';
 
 const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
@@ -49,7 +49,9 @@ const navConfig = {
 // today — and it appears only for accounts the server grants ERP access.
 const erpNav = [
   { path: '/erp',          icon: Wallet,      label: 'School ERP' },
+  { path: '/erp/admissions', icon: UserPlus,  label: 'Admissions' },
   { path: '/erp/students', icon: Users,       label: 'Students' },
+  { path: '/erp/families', icon: Home,        label: 'Families' },
   { path: '/erp/staff',    icon: GraduationCap, label: 'Staff' },
   { path: '/erp/classes',  icon: Building2,   label: 'Classes' },
 ];

@@ -10,6 +10,7 @@ celery_app = Celery(
         "tasks.student_import_tasks",
         "tasks.conversion_tasks",
         "tasks.online_class_tasks",
+        "tasks.erp_tasks",
     ],
 )
 
@@ -40,6 +41,13 @@ celery_app.conf.update(
 # closing abandoned classes, reminding students, expiring old recordings — and
 # none of it calls an AI model.
 celery_app.conf.beat_schedule = {
+    # The ERP event outbox. Sixty seconds is the gap between an admission being
+    # confirmed and the rest of the system acting on it, which is well inside
+    # the time it takes the clerk to hand over the login slip.
+    "drain-erp-events": {
+        "task": "tasks.erp_tasks.drain_domain_events",
+        "schedule": 60.0,
+    },
     "close-abandoned-classes": {
         "task": "tasks.online_class_tasks.close_abandoned_classes",
         "schedule": 120.0,

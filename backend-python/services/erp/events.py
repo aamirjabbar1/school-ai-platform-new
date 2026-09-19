@@ -85,6 +85,12 @@ async def drain(db: AsyncSession, *, limit: int = 50) -> dict[str, int]:
 
     for event in events:
         handlers = _HANDLERS.get(event.event_type, [])
+        # An event with no handler is done, not failed — there was nothing to
+        # do. The consequence is worth knowing: a handler written in a later
+        # phase does not see events that were drained before it existed. So a
+        # module that arrives later (fee accounts, in phase 4) backfills what
+        # already exists through its own setup, exactly as phase 1 did, rather
+        # than expecting the outbox to have been holding the past for it.
         try:
             for handler in handlers:
                 await handler(db, event)
