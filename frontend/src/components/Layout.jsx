@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { erpAPI } from '../services/api';
 import AuroraBackground from './AuroraBackground';
 import ThemeToggle from './ThemeToggle';
 import {
   LayoutDashboard, MessageSquare, BookOpen, FileText, Users,
   Database, LogOut, Menu, X, ClipboardList, Sparkles, GraduationCap, FileSpreadsheet,
   CalendarRange, ClipboardCheck, Video, Radio, PlaySquare,
+  Building2, ShieldCheck, Settings, Wallet,
 } from 'lucide-react';
 
 const SCHOOL_NAME = import.meta.env.VITE_SCHOOL_NAME || 'School AI Platform';
@@ -42,6 +44,35 @@ const navConfig = {
   ],
 };
 
+// The ERP's own navigation. It is appended to whatever the user's role
+// already shows rather than replacing it, so nobody loses a link they use
+// today — and it appears only for accounts the server grants ERP access.
+const erpNav = [
+  { path: '/erp',          icon: Wallet,      label: 'School ERP' },
+  { path: '/erp/students', icon: Users,       label: 'Students' },
+  { path: '/erp/staff',    icon: GraduationCap, label: 'Staff' },
+  { path: '/erp/classes',  icon: Building2,   label: 'Classes' },
+];
+const erpOwnerNav = [
+  { path: '/erp/access',   icon: ShieldCheck, label: 'People & access' },
+  { path: '/erp/settings', icon: Settings,    label: 'ERP settings' },
+];
+
+// One status call per session, shared by every mount of the layout — asking on
+// every page change would add a request to every navigation for no new answer.
+//
+// Students are never asked at all. There are 755 of them against a backend
+// running a single worker, and a student cannot hold an ERP role in this phase,
+// so the answer is known without a round trip.
+let erpStatusPromise = null;
+const getErpStatus = (role) => {
+  if (role === 'student') return Promise.resolve({ available: false });
+  if (!erpStatusPromise) {
+    erpStatusPromise = erpAPI.status().then(({ data }) => data).catch(() => ({ available: false }));
+  }
+  return erpStatusPromise;
+};
+
 // Role accent gradients (used for active nav glow, logo ring, avatar)
 const roleAccent = {
   student: 'from-brand-blue via-brand-cyan to-brand-teal',
@@ -55,7 +86,14 @@ export default function Layout({ children, title }) {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const navItems = navConfig[user?.role] || [];
+  const [erp, setErp] = useState(null);
+  useEffect(() => { getErpStatus(user?.role).then(setErp); }, [user?.role]);
+
+  const navItems = [
+    ...(navConfig[user?.role] || []),
+    ...(erp?.available ? erpNav : []),
+    ...(erp?.available && erp?.is_owner ? erpOwnerNav : []),
+  ];
   const accent = roleAccent[user?.role] || roleAccent.student;
 
   const handleLogout = () => {

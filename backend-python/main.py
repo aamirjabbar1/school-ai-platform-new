@@ -55,6 +55,7 @@ from routes.class_ai import router as class_ai_router
 from routes.class_schedules import router as class_schedules_router
 from routes.live_classes_admin import router as live_classes_admin_router
 from routes.livekit_webhooks import router as livekit_webhook_router
+from routes.erp import router as erp_router
 
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
@@ -87,6 +88,25 @@ async def create_default_admin():
         print(f"[WARN] Default admin creation (non-fatal): {e}")
 
 
+# ─── ERP foundations ──────────────────────────────────────────────────────────
+
+async def bootstrap_erp():
+    """Seed ERP roles, permissions, number series and the module flag.
+
+    Idempotent, and non-fatal by design: the ERP is a new module and must never
+    be the reason the existing platform fails to start.
+    """
+    try:
+        async with async_session() as db:
+            from services.erp import setup as erp_setup
+            created = await erp_setup.bootstrap(db)
+            await erp_setup.grant_owner_to_existing_admins(db)
+            if any(created.values()):
+                print(f"[OK] ERP foundations seeded: {created}")
+    except Exception as e:
+        print(f"[WARN] ERP bootstrap (non-fatal): {e}")
+
+
 # ─── Lifespan ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -105,6 +125,7 @@ async def lifespan(app: FastAPI):
         print(f"[WARN] Milvus init failed (non-fatal, will retry on next request): {exc}")
 
     await create_default_admin()
+    await bootstrap_erp()
 
     print(f"\n{'='*50}")
     print(f"  School AI Platform — {SCHOOL_NAME}")
@@ -190,6 +211,7 @@ app.include_router(class_schedules_router, prefix="/api")
 app.include_router(live_classes_admin_router, prefix="/api")
 # Called by the LiveKit media server, not by a user: authenticated by signature.
 app.include_router(livekit_webhook_router, prefix="/api")
+app.include_router(erp_router,        prefix="/api")
 
 
 @app.get("/")

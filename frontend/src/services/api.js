@@ -280,4 +280,47 @@ export const notificationAPI = {
   markRead: (id) => api.put(`/notifications/${id}/read`),
 };
 
+// ─── ERP ──────────────────────────────────────────────────────────────────────
+// Phase 1: setup, masters, people, access and settings. Every call is gated
+// server-side by the `erp` feature flag, so these are safe to reference even
+// while the module is switched off.
+export const erpAPI = {
+  status: () => api.get('/erp/status'),
+  dashboard: () => api.get('/erp/dashboard'),
+
+  // Setup
+  analyze: () => api.get('/erp/setup/analyze'),
+  runSetup: () => api.post('/erp/setup/run', {}, { timeout: 300000 }),
+  allocateGrNumbers: () => api.post('/erp/setup/allocate-gr-numbers', {}, { timeout: 120000 }),
+  allocateEmployeeNumbers: () => api.post('/erp/setup/allocate-employee-numbers', {}, { timeout: 120000 }),
+
+  // Masters
+  sessions: () => api.get('/erp/sessions'),
+  createSession: (data) => api.post('/erp/sessions', data),
+  makeSessionCurrent: (id) => api.post(`/erp/sessions/${id}/make-current`),
+  classes: () => api.get('/erp/classes'),
+  subjects: () => api.get('/erp/subjects'),
+
+  // People
+  students: (params) => api.get('/erp/students', { params }),
+  student: (id) => api.get(`/erp/students/${id}`),
+  updateStudent: (id, data) => api.put(`/erp/students/${id}`, data),
+  staff: (params) => api.get('/erp/staff', { params }),
+  updateStaff: (id, data) => api.put(`/erp/staff/${id}`, data),
+
+  // Access
+  roles: () => api.get('/erp/access/roles'),
+  people: () => api.get('/erp/access/people'),
+  grantRole: (data) => api.post('/erp/access/grant', data),
+  revokeRole: (data) => api.post('/erp/access/revoke', data),
+
+  // Settings
+  numbering: () => api.get('/erp/settings/numbering'),
+  updateNumbering: (scope, data) => api.put(`/erp/settings/numbering/${scope}`, data),
+  flags: () => api.get('/erp/settings/flags'),
+  updateFlag: (key, data) => api.put(`/erp/settings/flags/${key}`, data),
+
+  audit: (params) => api.get('/erp/audit', { params }),
+};
+
 export default api;

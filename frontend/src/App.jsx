@@ -33,6 +33,15 @@ import BulkImportStudents from './pages/admin/BulkImportStudents';
 import AdminLiveClasses from './pages/admin/LiveClasses';
 const ObserveClass = lazy(() => import('./pages/admin/ObserveClass'));
 
+// ERP (phase 1). Lazily loaded and route-split: the ERP must not add a byte to
+// the bundle a student downloads to open the chatbot.
+const ErpHome = lazy(() => import('./pages/erp/Home'));
+const ErpStudents = lazy(() => import('./pages/erp/Students'));
+const ErpStaff = lazy(() => import('./pages/erp/Staff'));
+const ErpClasses = lazy(() => import('./pages/erp/Classes'));
+const ErpAccess = lazy(() => import('./pages/erp/Access'));
+const ErpSettings = lazy(() => import('./pages/erp/Settings'));
+
 const ProtectedRoute = ({ children, allowedRoles }) => {
   const { user, loading } = useAuth();
   if (loading) return (
@@ -111,7 +120,17 @@ export default function App() {
           <Route path="/admin/live-classes" element={<ProtectedRoute allowedRoles={['admin']}><AdminLiveClasses /></ProtectedRoute>} />
           <Route path="/admin/observe/:sessionId" element={<ProtectedRoute allowedRoles={['admin']}><ObserveClass /></ProtectedRoute>} />
 
-            <Route path="*" element={<Navigate to="/" replace />} />
+          {/* ERP — who may actually see anything is decided by the server, which
+              returns 404 for accounts without ERP access. These routes are open
+              to any signed-in user so a new role never needs a frontend change. */}
+          <Route path="/erp" element={<ProtectedRoute><ErpHome /></ProtectedRoute>} />
+          <Route path="/erp/students" element={<ProtectedRoute><ErpStudents /></ProtectedRoute>} />
+          <Route path="/erp/staff" element={<ProtectedRoute><ErpStaff /></ProtectedRoute>} />
+          <Route path="/erp/classes" element={<ProtectedRoute><ErpClasses /></ProtectedRoute>} />
+          <Route path="/erp/access" element={<ProtectedRoute><ErpAccess /></ProtectedRoute>} />
+          <Route path="/erp/settings" element={<ProtectedRoute><ErpSettings /></ProtectedRoute>} />
+
+          <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           </Suspense>
         </AuthProvider>
