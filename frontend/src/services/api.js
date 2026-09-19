@@ -379,6 +379,21 @@ export const erpAPI = {
   createAdvance: (data) => api.post('/erp/payroll/advances', data),
   employeeDocuments: (id) => api.get(`/erp/payroll/documents/${id}`),
   recordEmployeeDocument: (data) => api.post('/erp/payroll/documents', data),
+
+  // Accounting (phase 6)
+  chartOfAccounts: () => api.get('/erp/accounts/chart'),
+  createGlAccount: (data) => api.post('/erp/accounts/chart', data),
+  expenses: (params) => api.get('/erp/accounts/expenses', { params }),
+  recordExpense: (data) => api.post('/erp/accounts/expenses', data),
+  vendors: () => api.get('/erp/accounts/vendors'),
+  createVendor: (data) => api.post('/erp/accounts/vendors', data),
+  trialBalance: (params) => api.get('/erp/accounts/trial-balance', { params }),
+  profitAndLoss: (params) => api.get('/erp/accounts/profit-and-loss', { params }),
+  balanceSheet: (params) => api.get('/erp/accounts/balance-sheet', { params }),
+  accountLedger: (id, params) => api.get(`/erp/accounts/ledger/${id}`, { params }),
+  journals: (params) => api.get('/erp/accounts/journals', { params }),
+  accountingPeriods: () => api.get('/erp/accounts/periods'),
+  setAccountingPeriod: (data) => api.post('/erp/accounts/periods', data),
 };
 
 export default api;

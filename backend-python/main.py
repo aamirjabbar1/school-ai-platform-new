@@ -60,6 +60,7 @@ from routes.erp_admissions import router as erp_admissions_router
 from routes.erp_attendance import router as erp_attendance_router
 from routes.erp_fees import router as erp_fees_router
 from routes.erp_payroll import router as erp_payroll_router
+from routes.erp_accounts import router as erp_accounts_router
 
 
 # ─── Rate limiter ─────────────────────────────────────────────────────────────
@@ -104,6 +105,9 @@ async def bootstrap_erp():
         async with async_session() as db:
             from services.erp import setup as erp_setup
             created = await erp_setup.bootstrap(db)
+            from services.erp import accounts as erp_accounts
+            created["gl_accounts"] = await erp_accounts.ensure_chart(db)
+            await db.commit()
             await erp_setup.grant_owner_to_existing_admins(db)
             if any(created.values()):
                 print(f"[OK] ERP foundations seeded: {created}")
@@ -220,6 +224,7 @@ app.include_router(erp_admissions_router, prefix="/api")
 app.include_router(erp_attendance_router, prefix="/api")
 app.include_router(erp_fees_router,   prefix="/api")
 app.include_router(erp_payroll_router, prefix="/api")
+app.include_router(erp_accounts_router, prefix="/api")
 
 
 @app.get("/")

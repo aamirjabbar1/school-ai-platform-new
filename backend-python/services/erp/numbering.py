@@ -32,6 +32,8 @@ SCOPE_EMPLOYEE = "employee_no"
 SCOPE_FAMILY = "family_code"
 SCOPE_VOUCHER = "voucher_no"
 SCOPE_RECEIPT = "receipt_no"
+SCOPE_JOURNAL = "journal_no"
+SCOPE_EXPENSE = "expense_no"
 
 DEFAULT_SERIES = [
     (SCOPE_GR, "GR Number", "{seq:05d}", 1),
@@ -41,6 +43,8 @@ DEFAULT_SERIES = [
     (SCOPE_FAMILY, "Family Code", "FAM-{seq:05d}", 1),
     (SCOPE_VOUCHER, "Fee Voucher Number", "V{seq:07d}", 1),
     (SCOPE_RECEIPT, "Receipt Number", "R{seq:07d}", 1),
+    (SCOPE_JOURNAL, "Journal Number", "J{seq:07d}", 1),
+    (SCOPE_EXPENSE, "Expense Number", "E{seq:06d}", 1),
 ]
 
 
